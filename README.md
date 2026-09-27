@@ -37,7 +37,7 @@ works from any other HTTPS host.
 Open `index.html?demo=1`. Tracking is skipped completely. The sushi floats in
 front of you on a slate board, with the camera feed behind it if the camera is
 allowed. Everything else works the same: tapping, See Inside, info panels.
-In demo mode you can also drag sideways to spin the sushi around.
+In demo mode you can drag sideways to spin the sushi. If your phone has a gyroscope, the sushi stays put in space as you turn the phone.
 
 Local testing:
 
@@ -57,31 +57,44 @@ phone, use the HTTPS GitHub Pages URL.
 - Lay it flat with good, even light. Hold the phone about 20–40 cm away.
 - A tablet or monitor showing the image works too, but less reliably, because screens reflect light.
 
-## Stability tuning
+## Keeping the model locked to the picture
 
-The model should sit still on the picture and not wobble. That comes from three layers,
-all explained in comments in `index.html` (search for `TRACKING` and `SMOOTH`):
+Once the sushi appears, it stays fixed to the picture. You can move and turn your phone
+to look at it from any side, like the AR apps used for architecture. That works in three layers,
+all explained in comments in `index.html` (search for `TRACKING` and `FUSION`):
 
-1. **MindAR's One Euro filter.** `filterMinCF = 0.0001` gives very heavy smoothing
-   when the picture is still. `filterBeta = 0.001` loosens that during real movement so the
-   model keeps up.
-2. **Per-frame smoothing.** Each render frame, the displayed model lerps (position/scale)
-   and slerps (rotation) toward the tracked pose, instead of jumping there.
-3. **Deadzone with hysteresis.** Movements under about 0.35% of the picture width (about 0.6 mm)
-   or 0.4° are ignored, so leftover noise can't make the model shimmer.
+1. **Gyroscope.** The phone's motion sensor measures turning instantly. Turning the phone
+   moves the model on screen by exactly the opposite amount, with no waiting for camera
+   tracking, so it doesn't drag behind the picture.
+2. **Camera tracking (MindAR)** corrects the position: where the picture is and how far
+   you've walked. Tracking results are lined up with the gyroscope reading from the moment
+   their camera frame was taken, so the tracking delay doesn't show.
+3. **Adaptive smoothing with a deadzone.** Jitter-sized differences are smoothed heavily or
+   ignored, so the model is still at rest. Big differences, such as walking around the picture,
+   are followed quickly.
 
-`warmupTolerance = 8` stops the model popping in before tracking is steady.
-`missTolerance = 15` holds the model for about half a second if tracking briefly drops.
+If tracking drops for a moment (steep angle, glare, a hand in the way), the gyroscope
+holds the model in place for about 1.5 s. On iPhone, Safari asks for **motion access**
+when you tap Start. Allow it, or the model won't stay as steady.
 
-To tune on a real device, override any value in the URL:
+Tracking needs the picture in view. Very steep angles (almost edge-on) lose it, so move
+around the picture rather than down to table level. A bigger print tracks from further away.
+
+### Tuning on a device
+
+Override values in the URL:
 
 ```
-?mincf=0.0003&beta=0.005&warmup=5&miss=20
-?smooth=0        # turn off the extra smoothing layer, to compare
+?mincf=0.01&beta=0.02    # MindAR's own filter (default 0.005 / 0.01, deliberately light)
+?warmup=5&miss=15        # frames before showing / frames of dropout tolerated
+?lat=60                  # camera latency in ms used to line up gyro and video (default 45)
+?gyro=0                  # turn off the gyroscope, to compare
+?smooth=0                # turn off all extra smoothing, to compare
 ```
 
 ## Tech notes
 
+- Font: **Urbanist** (Google Fonts), falling back to the system font offline.
 - **three.js 0.160.0** and **mind-ar 1.2.5**, pinned in an import map. MindAR 1.2.5 imports
   `sRGBEncoding`, which later versions of three.js removed, so don't upgrade either one alone.
 - All models are made in code: lathed rings for the nori and rice, rounded bent slabs

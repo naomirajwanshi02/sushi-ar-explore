@@ -6,6 +6,9 @@
 <meta name="theme-color" content="#111111">
 <meta name="description" content="Point your phone at the sushi picture and explore what's inside a sushi roll in augmented reality.">
 <title>Sushi AR Explorer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Urbanist:wght@400;500;600;700;800&display=swap">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🍣</text></svg>">
 <style>
   :root {
@@ -23,7 +26,7 @@
   html, body {
     margin: 0; height: 100%; overflow: hidden;
     background: #111; color: var(--ink);
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    font-family: "Urbanist", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
     -webkit-font-smoothing: antialiased;
   }
   button { font: inherit; cursor: pointer; touch-action: manipulation; }
@@ -91,22 +94,20 @@
 
   /* ---------- Labels in exploded view ---------- */
   #labels { position: fixed; inset: 0; z-index: 3; pointer-events: none; overflow: hidden; }
+  #leaders { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; transition: opacity 0.25s; }
+  #leaders line { stroke: rgba(255, 250, 243, 0.9); stroke-width: 1.5; }
+  #leaders circle { fill: #fffaf3; stroke: rgba(29, 26, 23, 0.55); stroke-width: 1.5; }
   .label {
     position: absolute; left: 0; top: 0; pointer-events: auto;
-    transform: translate(-50%, -100%); white-space: nowrap;
-    background: rgba(255, 250, 243, 0.94); color: var(--ink); border: 0;
-    font-size: 13px; font-weight: 650; padding: 6px 11px; border-radius: 999px;
+    white-space: nowrap;
+    background: rgba(255, 250, 243, 0.95); color: var(--ink); border: 0;
+    font-size: 14px; font-weight: 700; padding: 6px 12px; border-radius: 999px;
     box-shadow: 0 2px 10px rgba(0, 0, 0, 0.25);
     opacity: 0; transition: opacity 0.25s, background-color 0.2s, color 0.2s;
     will-change: transform;
   }
-  .label::after {
-    content: ""; position: absolute; left: 50%; bottom: -5px; margin-left: -5px;
-    border: 5px solid transparent; border-bottom: 0; border-top-color: rgba(255, 250, 243, 0.94);
-  }
   .label .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; vertical-align: 1px; }
   .label.active { background: var(--accent); color: #fff; }
-  .label.active::after { border-top-color: var(--accent); }
 
   /* ---------- See Inside button ---------- */
   #toggle {
@@ -215,7 +216,7 @@
 
 <div id="coach" class="pill">Tap the sushi to learn its story</div>
 
-<div id="labels"></div>
+<div id="labels"><svg id="leaders" aria-hidden="true"></svg></div>
 
 <button id="toggle" class="hidden" type="button" aria-pressed="false">
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
@@ -263,72 +264,87 @@ const num = (key, fallback) => {
 };
 
 /*
- * Tracking stability.
+ * Keeping the model locked to the picture
+ * ---------------------------------------
+ * Why a filter alone isn't enough: MindAR's One Euro filter smooths the 16
+ * numbers of the pose matrix one by one. Rotation values (range ±1) change very
+ * slowly numerically compared with position values (hundreds of units), so a
+ * filter heavy enough to stop jitter makes *rotation* lag. You see the model
+ * drag behind the picture and then catch up whenever you turn the phone, which
+ * is the opposite of "fixed to the image".
  *
- * MindAR smooths the raw pose with a One Euro filter, applied element-wise to
- * the 4x4 pose matrix, with time measured in milliseconds:
- *     cutoff = filterMinCF + filterBeta * |speed|
- *     alpha  = r / (r + 1),  r = 2π · cutoff · Δt
- * so a lower cutoff means heavier smoothing.
+ * What we do instead (like AR apps for architecture):
+ *  1. The phone's gyroscope (DeviceOrientation) measures how the phone turns,
+ *     instantly and with no noise. We keep the model's pose in a "gyro world"
+ *     frame. Turning the phone moves the model on screen immediately by exactly
+ *     the opposite rotation, so it stays glued to the picture while you look
+ *     around it.
+ *  2. Camera tracking (MindAR) is only used to correct that pose: where the
+ *     picture really is, and how far you've walked. Each tracking result is
+ *     rotated into the gyro world using the gyro reading from the moment its
+ *     camera frame was taken, so the 30–60 ms of tracking delay doesn't
+ *     cause drag.
+ *  3. The correction is adaptive. When the difference is only tracking noise,
+ *     the model eases toward it slowly (heavy smoothing, and turning the phone
+ *     doesn't need vision at all). When the difference is large (you walked
+ *     around the picture), the model follows quickly. Tiny differences inside
+ *     a deadzone are ignored, so the model is still at rest.
+ *  4. If tracking is lost briefly (steep angle, glare, a hand in the way), the
+ *     gyro holds the model in place for a moment instead of letting it vanish.
+ * Without a gyroscope (desktop, or permission denied) steps 1, 2 and 4
+ * switch off and only the adaptive smoothing remains.
  *
- * filterMinCF = 0.0001  (MindAR default 0.001)
- *   The cutoff when the image is held still. At ~30 tracking fps (Δt ≈ 33 ms)
- *   this gives alpha ≈ 0.02, so each new frame only nudges the pose ~2%.
- *   Frame-to-frame detector noise (the cause of jitter) is averaged away over
- *   about a second. This is the main anti-wobble setting.
- * filterBeta = 0.001  (MindAR default 1000)
- *   How much the cutoff opens up when the pose is really moving. MindAR's
- *   default of 1000 lets almost all noise through. At 0.001, a phone moving at
- *   a normal hand speed (translation changing a few hundred marker-pixels per
- *   second) raises the cutoff to ~0.0004–0.002, so alpha rises to ~0.08–0.3 and
- *   the model follows within a few tenths of a second. Tiny jitter, whose
- *   speed is near zero, never opens the filter. Higher beta values (0.01+)
- *   follow faster but let visible shimmer back in. Lower ones (0.0001) make the
- *   model trail behind noticeably when you move.
- * warmupTolerance = 8  (default 5)
- *   The target has to be tracked for 8 consecutive frames (~0.25–0.4 s) before
- *   the model is shown, so a half-found first pose never pops in skewed.
- * missTolerance = 15  (default 5)
- *   Tracking can drop for up to 15 frames (~0.5 s) with the model held at
- *   its last pose, so it doesn't flicker out from motion blur, glare or a
- *   finger crossing the picture.
+ * MindAR settings. Its own filter is now kept light, because heavy filtering
+ * there adds lag the gyroscope can't remove. The fusion below does the smoothing.
+ * filterMinCF = 0.005  cutoff at rest. With ~33 ms frames, alpha ≈ 0.5: it only
+ *                      knocks off single-frame spikes, with about 1 frame of delay.
+ * filterBeta  = 0.01   lets the filter open further during fast motion.
+ * warmupTolerance = 8  the picture must be tracked for 8 frames in a row
+ *                      (~0.3 s) before the model appears, so it never pops
+ *                      in at a skewed first pose.
+ * missTolerance = 10   MindAR keeps "showing" for 10 missed frames. The gyro
+ *                      hold (holdLost) keeps the model steady on top of that.
  *
- * Every value can be overridden in the URL for on-device tuning, e.g.
- *   ?mincf=0.0003&beta=0.005&warmup=5&miss=20&smooth=0
+ * Override in the URL for on-device tuning, e.g.
+ *   ?mincf=0.01&beta=0.02&warmup=5&miss=15&gyro=0&lat=60&smooth=0
  */
 const TRACKING = {
-  filterMinCF: num('mincf', 0.0001),
-  filterBeta: num('beta', 0.001),
+  filterMinCF: num('mincf', 0.005),
+  filterBeta: num('beta', 0.01),
   warmupTolerance: Math.round(num('warmup', 8)),
-  missTolerance: Math.round(num('miss', 15)),
+  missTolerance: Math.round(num('miss', 10)),
 };
 
 /*
- * Extra smoothing on top of MindAR, applied every *render* frame (60 fps)
- * between the displayed model and the latest tracked pose. MindAR only updates
- * at the tracking rate (15–30 fps on phones), so snapping to it would step.
- *
- * - posRate / rotRate: exponential approach speed per second. Blend factor is
- *   1 - exp(-rate · dt), which is the same at any frame rate. At 16/s the
- *   model covers ~63% of the gap in 60 ms: smooth, and still barely any extra lag.
- * - fastBoost: when the gap is large (real movement, see fastPos/fastRot)
- *   the rate is multiplied so the model doesn't trail behind the picture.
- * - posDeadzone / rotDeadzone: movements smaller than 0.35% of the marker
- *   width (~0.6 mm on an 18 cm print) or 0.4° are ignored while the model is
- *   settled. Once the error goes past that, the model moves smoothly until it's
- *   within settleFactor × deadzone, then locks again. That hysteresis stops
- *   it creeping back and forth on noise that's left over.
+ * Fusion of camera tracking and gyroscope, applied every render frame.
+ * - latencyMs: roughly how old the camera image is when it reaches the screen
+ *   and the tracker. The model is posed for the moment the displayed video frame
+ *   was captured, so it matches the video under it rather than running ahead.
+ * - noisePos / noiseRot: typical size of tracking jitter (fraction of the
+ *   picture's width / radians). Differences up to this size are treated as noise.
+ * - restRate: how fast (per second) the model eases toward the camera measurement
+ *   when the difference is noise-sized. It's low with a gyro because turning is
+ *   already handled instantly, and higher without one.
+ * - moveRate: how fast it follows once the difference is 6× the noise
+ *   (real movement, e.g. walking around the picture).
+ * - posDeadzone / rotDeadzone: while settled, anything smaller is ignored
+ *   (~0.4 mm and 0.25° on an 18 cm print). Once moving, the model settles again
+ *   within settleFactor × deadzone (hysteresis, so it doesn't creep back and forth).
+ * - holdLost: seconds the gyro keeps the model in place after tracking is lost.
  */
-const SMOOTH = {
+const FUSION = {
   enabled: params.get('smooth') !== '0',
-  posRate: 16,
-  rotRate: 14,
-  fastBoost: 2.5,
-  fastPos: 0.04,                           // fraction of marker width
-  fastRot: THREE.MathUtils.degToRad(6),
-  posDeadzone: 0.0035,                     // fraction of marker width
-  rotDeadzone: THREE.MathUtils.degToRad(0.4),
+  useGyro: params.get('gyro') !== '0',
+  latencyMs: num('lat', 45),
+  noisePos: 0.004,
+  noiseRot: THREE.MathUtils.degToRad(0.6),
+  restRateGyro: 3,
+  restRateNoGyro: 8,
+  moveRate: 22,
+  posDeadzone: 0.0025,
+  rotDeadzone: THREE.MathUtils.degToRad(0.25),
   settleFactor: 0.3,
+  holdLost: 1.5,
 };
 
 /* =====================================================================
@@ -956,15 +972,14 @@ function animatePieces(dt, time) {
     explodeP = THREE.MathUtils.clamp(explodeP + dir * dt / EXPLODE_TIME, 0, 1);
   }
   const span = 1 - STAGGER * (pieces.length - 1);
-  let labelsOn = explodeP > 0.92 && explodeTarget === 1;
   exploded_ = explodeP;
   for (const piece of pieces) {
     const local = THREE.MathUtils.clamp((explodeP - piece.index * STAGGER) / span, 0, 1);
     const e = easeInOut(local);
     const o = piece.object;
     o.position.lerpVectors(piece.homePos, piece.expPos, e);
-    // Float up in an arc on the way, and bob gently once apart
-    o.position.y += Math.sin(Math.PI * e) * 0.05 + Math.sin(time * 1.3 + piece.index * 1.7) * 0.006 * e;
+    // Float up in an arc on the way; once apart, pieces hold perfectly still
+    o.position.y += Math.sin(Math.PI * e) * 0.05;
     o.quaternion.slerpQuaternions(piece.homeQuat, piece.expQuat, e);
 
     // Highlight: gentle scale-up and warm pulsing glow on the selected piece
@@ -979,33 +994,110 @@ function animatePieces(dt, time) {
       m.emissiveIntensity = glow;
     }
     if (piece.label) {
-      piece.label.style.opacity = labelsOn ? 1 : 0;
-      piece.label.style.pointerEvents = labelsOn ? 'auto' : 'none';
       piece.label.classList.toggle('active', !!hi);
     }
   }
   for (const s of shadows) s.material.opacity = s.userData.base * (1 - 0.55 * easeInOut(explodeP));
 }
 
-/* ---------- Labels: project 3D anchor points to the screen ---------- */
+/* ---------- Labels: project 3D anchor points, then declutter ---------- */
+// Each label sits just above its piece, joined to it by a thin leader line.
+// When labels would overlap (common when looking down on the picture, where
+// the lifted pieces line up), they're pushed apart on screen. The push is
+// eased over a few frames so labels don't flicker between arrangements.
+const SVGNS = 'http://www.w3.org/2000/svg';
+const leadersEl = $('leaders');
 const _v = new THREE.Vector3();
+const LABEL_GAP = 14, LABEL_PAD = 5;
+for (const p of pieces) {
+  if (!p.label) continue;
+  p.line = document.createElementNS(SVGNS, 'line');
+  p.dot = document.createElementNS(SVGNS, 'circle');
+  p.dot.setAttribute('r', 3.5);
+  leadersEl.append(p.line, p.dot);
+  p.off = { x: 0, y: 0 };
+}
+function measureLabels() { for (const p of pieces) if (p.label) p.labelW = p.labelH = 0; }
+window.addEventListener('resize', measureLabels);
+if (document.fonts && document.fonts.ready) document.fonts.ready.then(measureLabels);
+
 function updateLabels(camera, canvas) {
-  if (explodeP < 0.9 || !root.visible) {
-    for (const p of pieces) if (p.label) p.label.style.opacity = 0, p.label.style.pointerEvents = 'none';
+  const show = explodeP >= 0.9 && explodeTarget === 1 && root.visible;
+  leadersEl.style.opacity = show ? 1 : 0;
+  if (!show) {
+    for (const p of pieces) if (p.label) { p.label.style.opacity = 0; p.label.style.pointerEvents = 'none'; }
     return;
   }
   const rect = canvas.getBoundingClientRect();
+  const W = window.innerWidth, H = window.innerHeight, top = 64, margin = 8;
+  const items = [];
   for (const p of pieces) {
     if (!p.label) continue;
     p.object.localToWorld(_v.copy(p.labelAt));
     _v.project(camera);
-    const behind = _v.z > 1;
-    // Keep labels fully on screen (clamped to the viewport edges)
-    const half = (p.labelW ||= p.label.offsetWidth) / 2 + 8;
-    const x = THREE.MathUtils.clamp(rect.left + (_v.x * 0.5 + 0.5) * rect.width, half, window.innerWidth - half);
-    const y = rect.top + (-_v.y * 0.5 + 0.5) * rect.height;
-    p.label.style.transform = `translate(${x.toFixed(1)}px, ${y.toFixed(1)}px) translate(-50%, -100%)`;
-    if (behind) p.label.style.opacity = 0;
+    const ax = rect.left + (_v.x * 0.5 + 0.5) * rect.width;
+    const ay = rect.top + (-_v.y * 0.5 + 0.5) * rect.height;
+    // Hide labels whose piece is behind the camera or off screen
+    if (_v.z > 1 || _v.z < -1 || ax < 0 || ax > W || ay < top || ay > H) {
+      p.label.style.opacity = 0; p.label.style.pointerEvents = 'none';
+      p.line.style.display = p.dot.style.display = 'none';
+      continue;
+    }
+    if (!p.labelW) { p.labelW = p.label.offsetWidth; p.labelH = p.label.offsetHeight; }
+    // x, y = centre of the label's bottom edge
+    items.push({ p, ax, ay, x: ax, y: ay - LABEL_GAP, w: p.labelW, h: p.labelH });
+  }
+  const clampItem = (it) => {
+    it.x = THREE.MathUtils.clamp(it.x, it.w / 2 + margin, W - it.w / 2 - margin);
+    it.y = THREE.MathUtils.clamp(it.y, top + it.h, H - margin);
+  };
+  items.forEach(clampItem);
+  // The button is an obstacle labels must avoid (it never moves)
+  const labelCount = items.length;
+  if (!toggleBtn.classList.contains('hidden')) {
+    const r = toggleBtn.getBoundingClientRect();
+    items.push({ fixed: true, x: r.left + r.width / 2, y: r.bottom, w: r.width, h: r.height, ax: r.left + r.width / 2, ay: r.bottom, p: { index: 99 } });
+  }
+  const nudge = (it, dx, dy) => { if (!it.fixed) { it.x += dx; it.y += dy; } };
+  // Relaxation: push overlapping pairs apart along the cheaper axis
+  for (let iter = 0; iter < 24; iter++) {
+    let moved = false;
+    for (let i = 0; i < items.length; i++) {
+      for (let j = i + 1; j < items.length; j++) {
+        const a = items[i], b = items[j];
+        const ox = Math.min(a.x + a.w / 2, b.x + b.w / 2) - Math.max(a.x - a.w / 2, b.x - b.w / 2) + LABEL_PAD;
+        const oy = Math.min(a.y, b.y) - Math.max(a.y - a.h, b.y - b.h) + LABEL_PAD;
+        if (ox <= 0 || oy <= 0) continue;
+        moved = true;
+        const share = a.fixed || b.fixed ? 1 : 0.5;   // a fixed obstacle pushes the full amount
+        if (oy <= ox) {
+          // the label whose piece is higher on screen goes up
+          const [up, dn] = a.ay < b.ay || (a.ay === b.ay && a.p.index < b.p.index) ? [a, b] : [b, a];
+          nudge(up, 0, -oy * share); nudge(dn, 0, oy * share);
+        } else {
+          const [lf, rt] = a.ax < b.ax || (a.ax === b.ax && a.p.index < b.p.index) ? [a, b] : [b, a];
+          nudge(lf, -ox * share, 0); nudge(rt, ox * share, 0);
+        }
+      }
+    }
+    items.forEach((it) => !it.fixed && clampItem(it));
+    if (!moved) break;
+  }
+  items.length = labelCount;
+  // Ease the push (not the anchor) so labels track their piece exactly
+  for (const it of items) {
+    const { p } = it;
+    const k = 0.3;
+    p.off.x += (it.x - it.ax - p.off.x) * k;
+    p.off.y += (it.y - it.ay - p.off.y) * k;
+    const x = it.ax + p.off.x, y = it.ay + p.off.y;
+    p.label.style.transform = `translate(${(x - it.w / 2).toFixed(1)}px, ${(y - it.h).toFixed(1)}px)`;
+    p.label.style.opacity = 1;
+    p.label.style.pointerEvents = 'auto';
+    p.line.style.display = p.dot.style.display = '';
+    p.line.setAttribute('x1', x.toFixed(1)); p.line.setAttribute('y1', (y - 2).toFixed(1));
+    p.line.setAttribute('x2', it.ax.toFixed(1)); p.line.setAttribute('y2', it.ay.toFixed(1));
+    p.dot.setAttribute('cx', it.ax.toFixed(1)); p.dot.setAttribute('cy', it.ay.toFixed(1));
   }
 }
 
@@ -1088,6 +1180,54 @@ function updateToggleVisibility() {
 }
 
 /* =====================================================================
+   Gyroscope (DeviceOrientation), used to hold the model steady
+   ===================================================================== */
+const gyro = { available: false, history: [] };   // history: [{ t, q }] for the last ~1 s
+const _zee = new THREE.Vector3(0, 0, 1), _euler = new THREE.Euler();
+const _qScreen = new THREE.Quaternion(), _qBack = new THREE.Quaternion(-Math.sqrt(0.5), 0, 0, Math.sqrt(0.5));
+
+function screenAngle() {
+  const a = screen.orientation && typeof screen.orientation.angle === 'number' ? screen.orientation.angle : (window.orientation || 0);
+  return THREE.MathUtils.degToRad(a);
+}
+// Device orientation → the orientation of a three.js camera looking out of the
+// back of the phone (the same convention as three's DeviceOrientationControls).
+function onDeviceOrientation(e) {
+  if (e.alpha == null || e.beta == null || e.gamma == null) return;
+  const d = THREE.MathUtils.DEG2RAD;
+  _euler.set(e.beta * d, e.alpha * d, -e.gamma * d, 'YXZ');
+  const q = new THREE.Quaternion().setFromEuler(_euler).multiply(_qBack)
+    .multiply(_qScreen.setFromAxisAngle(_zee, -screenAngle()));
+  const t = performance.now();
+  gyro.available = true;
+  gyro.history.push({ t, q });
+  while (gyro.history.length > 2 && t - gyro.history[0].t > 1000) gyro.history.shift();
+}
+// Phone orientation at time t (interpolated). Identity when there is no gyro.
+function gyroAt(t, out) {
+  const h = gyro.history;
+  if (!gyro.available || !FUSION.useGyro || !h.length) return out.identity();
+  if (t >= h[h.length - 1].t) return out.copy(h[h.length - 1].q);
+  for (let i = h.length - 1; i > 0; i--) {
+    if (h[i - 1].t <= t) {
+      const a = h[i - 1], b = h[i];
+      return out.slerpQuaternions(a.q, b.q, (t - a.t) / Math.max(1, b.t - a.t));
+    }
+  }
+  return out.copy(h[0].q);
+}
+// Must be called straight from the Start tap: iOS only shows the permission
+// prompt when it's asked for from a user gesture.
+function enableGyro() {
+  if (!FUSION.useGyro || typeof DeviceOrientationEvent === 'undefined') return Promise.resolve(false);
+  const listen = () => { window.addEventListener('deviceorientation', onDeviceOrientation); return true; };
+  if (typeof DeviceOrientationEvent.requestPermission === 'function') {
+    return DeviceOrientationEvent.requestPermission().then((r) => r === 'granted' && listen()).catch(() => false);
+  }
+  return Promise.resolve(listen());
+}
+
+/* =====================================================================
    AR mode (MindAR)
    ===================================================================== */
 async function startAR() {
@@ -1104,50 +1244,87 @@ async function startAR() {
   setupLighting(scene, renderer);
   activeCamera = camera; activeCanvas = renderer.domElement;
 
+  // Poses are kept in the "gyro world": camera-relative pose rotated by the
+  // phone's orientation. Turning the phone doesn't change a world pose, so the
+  // model stays locked in place without waiting for the tracker.
+  const est = { pos: new THREE.Vector3(), quat: new THREE.Quaternion(), scale: new THREE.Vector3(1, 1, 1) };
+  const meas = { pos: new THREE.Vector3(), quat: new THREE.Quaternion(), scale: new THREE.Vector3(1, 1, 1) };
+  const qCap = new THREE.Quaternion(), qDisp = new THREE.Quaternion(), qInv = new THREE.Quaternion();
+  let tracked = false, haveEst = false, haveMeas = false, lostAt = 0, lastArrival = 0, settled = true;
+
   const anchor = mindar.addAnchor(0);
-  let tracked = false, needSnap = true;
-  anchor.onTargetFound = () => { tracked = true; needSnap = true; };
-  anchor.onTargetLost = () => { tracked = false; };
+  anchor.onTargetFound = () => { tracked = true; };
+  anchor.onTargetLost = () => { tracked = false; lostAt = performance.now(); };
+  anchor.onTargetUpdate = () => {
+    const now = performance.now();
+    // MindAR's loop grabs a frame right after delivering the previous result,
+    // so the previous arrival time is a good estimate of when this frame was grabbed.
+    const grabbed = now - lastArrival < 250 ? lastArrival + 8 : now - 60;
+    lastArrival = now;
+    // During missTolerance MindAR re-sends the old pose. Ignore those so the
+    // gyro can hold the model steady instead of dragging it back.
+    const st = mindar.controller && mindar.controller.trackingStates && mindar.controller.trackingStates[0];
+    if ((st && !st.isTracking) || anchor.group.matrix.determinant() === 0) return;
+    anchor.group.matrix.decompose(meas.pos, meas.quat, meas.scale);
+    meas.quat.normalize();                            // the filter blends matrix elements
+    gyroAt(grabbed - FUSION.latencyMs, qCap);         // phone orientation when captured
+    meas.pos.applyQuaternion(qCap);
+    meas.quat.premultiply(qCap);
+    haveMeas = true;
+    if (!haveEst || !FUSION.enabled) {
+      est.pos.copy(meas.pos); est.quat.copy(meas.quat); est.scale.copy(meas.scale);
+      if (!haveEst) appear = 0;
+      haveEst = true; settled = true;
+    }
+  };
 
   await mindar.start();
   scanEl.classList.remove('hidden');
 
-  // Smoothed display pose
-  const tPos = new THREE.Vector3(), tQuat = new THREE.Quaternion(), tScale = new THREE.Vector3();
-  let settled = false;
   const clock = new THREE.Clock();
-
   renderer.setAnimationLoop(() => {
     const dt = Math.min(clock.getDelta(), 0.1), time = clock.elapsedTime;
-    if (tracked && anchor.group.matrix.determinant() !== 0) {
-      anchor.group.matrix.decompose(tPos, tQuat, tScale);
-      tQuat.normalize(); // the filter smooths matrix elements, so re-normalise
-      if (needSnap || !SMOOTH.enabled) {
-        root.position.copy(tPos); root.quaternion.copy(tQuat); root.scale.copy(tScale);
-        needSnap = false; settled = true;
-        if (!root.visible) appear = 0;
+    const now = performance.now();
+
+    // 1) Correct the world pose toward the latest camera measurement
+    if (tracked && haveMeas && haveEst && FUSION.enabled) {
+      const unit = meas.scale.x;                        // picture width in world units
+      const dPos = est.pos.distanceTo(meas.pos) / unit;
+      const dRot = est.quat.angleTo(meas.quat);
+      const dz = settled ? 1 : FUSION.settleFactor;     // hysteresis
+      if (dPos > 0.25 || dRot > 0.35) {
+        // Far off (e.g. found again after a gap): jump straight there
+        est.pos.copy(meas.pos); est.quat.copy(meas.quat); est.scale.copy(meas.scale);
+      } else if (dPos > FUSION.posDeadzone * dz || dRot > FUSION.rotDeadzone * dz) {
+        settled = false;
+        const r = Math.max(dPos / FUSION.noisePos, dRot / FUSION.noiseRot);
+        const rest = gyro.available && FUSION.useGyro ? FUSION.restRateGyro : FUSION.restRateNoGyro;
+        const rate = rest + (FUSION.moveRate - rest) * THREE.MathUtils.smoothstep(r, 1, 6);
+        const k = 1 - Math.exp(-rate * dt);
+        est.pos.lerp(meas.pos, k);
+        est.scale.lerp(meas.scale, k);
+        est.quat.slerp(meas.quat, k);
       } else {
-        const unit = tScale.x;                          // marker width in world units
-        const dPos = root.position.distanceTo(tPos) / unit;
-        const dRot = root.quaternion.angleTo(tQuat);
-        const dz = settled ? 1 : SMOOTH.settleFactor;   // hysteresis
-        if (dPos > SMOOTH.posDeadzone * dz || dRot > SMOOTH.rotDeadzone * dz) {
-          settled = false;
-          const fast = dPos > SMOOTH.fastPos || dRot > SMOOTH.fastRot ? SMOOTH.fastBoost : 1;
-          const kp = 1 - Math.exp(-SMOOTH.posRate * fast * dt);
-          const kr = 1 - Math.exp(-SMOOTH.rotRate * fast * dt);
-          root.position.lerp(tPos, kp);
-          root.scale.lerp(tScale, kp);
-          root.quaternion.slerp(tQuat, kr);
-        } else {
-          settled = true;
-        }
+        settled = true;
       }
-      if (!root.visible) { root.visible = true; setSushiShown(true); }
-    } else if (root.visible) {
-      root.visible = false;
-      setSushiShown(false);
     }
+
+    // 2) Show it: visible while tracked, or briefly held by the gyro after a loss
+    const holding = !tracked && haveEst && gyro.available && FUSION.useGyro && (now - lostAt) / 1000 < FUSION.holdLost;
+    const show = haveEst && (tracked || holding);
+    if (show) {
+      // Pose for the moment the on-screen video frame was captured
+      gyroAt(now - FUSION.latencyMs, qDisp);
+      qInv.copy(qDisp).invert();
+      root.position.copy(est.pos).applyQuaternion(qInv);
+      root.quaternion.copy(qInv).multiply(est.quat);
+      root.scale.copy(est.scale);
+      if (!root.visible) { root.visible = true; setSushiShown(true); }
+    } else {
+      if (root.visible) { root.visible = false; setSushiShown(false); }
+      if (!tracked) { haveEst = false; haveMeas = false; }  // snap on next find
+    }
+
     appear = Math.min(1, appear + dt / 0.35);
     spin.scale.setScalar(0.85 + 0.15 * easeInOut(appear));
     animatePieces(dt, time);
@@ -1214,12 +1391,18 @@ async function startDemo() {
   root.visible = true;
   setSushiShown(true);
 
+  // With a gyroscope the sushi stays put in space: turn the phone and it stays
+  // where it is (3 degrees of freedom). Drag sideways to spin it.
+  const q0 = new THREE.Quaternion(), qNow = new THREE.Quaternion();
+  let haveQ0 = false;
   const clock = new THREE.Clock();
   renderer.setAnimationLoop(() => {
     const dt = Math.min(clock.getDelta(), 0.1), time = clock.elapsedTime;
-    // Gentle float
-    root.rotation.x = -0.85 + Math.sin(time * 0.6) * 0.04;
-    root.position.y = baseY + Math.sin(time * 0.9) * 0.012;
+    if (gyro.available && FUSION.useGyro) {
+      gyroAt(performance.now() - FUSION.latencyMs, qNow);
+      if (!haveQ0) { q0.copy(qNow).invert(); haveQ0 = true; }
+      camera.quaternion.copy(q0).multiply(qNow);
+    }
     if (!down) { spin.rotation.z += dragSpin * dt; dragSpin *= Math.exp(-dt * 3); }
     appear = Math.min(1, appear + dt / 0.5);
     spin.scale.setScalar(0.85 + 0.15 * easeInOut(appear));
@@ -1241,7 +1424,9 @@ $('startBtn').addEventListener('click', async () => {
   const btn = $('startBtn');
   btn.disabled = true;
   btn.insertAdjacentHTML('afterend', '<div class="spinner" aria-label="Loading"></div>');
+  const gyroReady = enableGyro();   // first, while we're still inside the tap
   try {
+    await Promise.race([gyroReady, new Promise((r) => setTimeout(r, 4000))]);
     if (DEMO) await startDemo();
     else await startAR();
     overlay.classList.add('hidden');
