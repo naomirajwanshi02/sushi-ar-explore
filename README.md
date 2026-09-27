@@ -15,6 +15,8 @@ wasabi and pickled ginger. Tap it to learn the history of sushi, then press
 | `index.html` | The whole app in one file: inline CSS and JS. three.js and MindAR load from a CDN, and every 3D model is built in code. No build step. |
 | `sushi_main.jpeg` | The image target. Print this. |
 | `targets.mind` | MindAR's compiled data for `sushi_main.jpeg`. Used as-is. |
+| `models/` | Every sushi piece as a `.glb` 3D file, for opening in Blender or using as a reference for your own models. |
+| `MODELS.md` | **Guide to the 3D models:** how they're built, and how to replace them or add your own. |
 
 ## How to use it
 
@@ -91,6 +93,12 @@ Override values in the URL:
 ?gyro=0                  # turn off the gyroscope, to compare
 ?smooth=0                # turn off all extra smoothing, to compare
 ```
+
+## Your own 3D models
+
+The sushi is built in code, but every piece can be swapped for your own `.glb` model, and you
+can add new pieces. See **[MODELS.md](MODELS.md)** for the step-by-step guide (including Blender).
+The built-in pieces are in `models/` as `.glb` files, and `?export=1` re-exports them.
 
 ## Tech notes
 

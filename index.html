@@ -166,11 +166,11 @@
   /* ---------- Start / loading / error overlay ---------- */
   #overlay {
     position: fixed; inset: 0; z-index: 10; display: flex; align-items: center; justify-content: center;
-    padding: 24px; background: radial-gradient(120% 80% at 50% 20%, #3a2f28 0%, #171311 70%);
+    padding: 24px; overflow-y: auto; background: radial-gradient(120% 80% at 50% 20%, #3a2f28 0%, #171311 70%);
     color: #fff; text-align: center; transition: opacity 0.4s;
   }
   #overlay.hidden { opacity: 0; pointer-events: none; }
-  .card { max-width: 380px; }
+  .card { max-width: 380px; margin: auto; }
   .card .logo { font-size: 64px; line-height: 1; }
   .card h1 { font-size: 28px; margin: 14px 0 8px; }
   .card p { color: rgba(255, 255, 255, 0.78); line-height: 1.5; margin: 0 0 12px; font-size: 16px; }
@@ -181,6 +181,12 @@
   .card .primary:disabled { opacity: 0.6; }
   .card a { color: #ffb899; }
   .card .small { font-size: 14px; color: rgba(255, 255, 255, 0.6); margin-top: 18px; }
+  .dl-list { display: grid; gap: 8px; margin: 14px 0; text-align: left; }
+  .card a.dl {
+    display: flex; justify-content: space-between; padding: 12px 16px; border-radius: 12px;
+    background: rgba(255, 255, 255, 0.1); color: #fff; text-decoration: none; font-weight: 600;
+  }
+  .card a.dl span { color: rgba(255, 255, 255, 0.6); font-weight: 500; }
   .spinner {
     width: 36px; height: 36px; margin: 18px auto 0; border-radius: 50%;
     border: 4px solid rgba(255, 255, 255, 0.2); border-top-color: #fff; animation: spin 0.9s linear infinite;
@@ -251,7 +257,7 @@
 <script type="module">
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
-import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
+import { mergeVertices, mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
 /* =====================================================================
    Settings
@@ -345,6 +351,37 @@ const FUSION = {
   rotDeadzone: THREE.MathUtils.degToRad(0.25),
   settleFactor: 0.3,
   holdLost: 1.5,
+};
+
+/*
+ * Your own 3D models (full guide: MODELS.md)
+ * ------------------------------------------
+ * Every piece is built in code, but any of them can be swapped for a .glb file.
+ * Put the file in the models/ folder and add a line below. Remove the line to
+ * go back to the built-in model.
+ *
+ * Built-in piece ids:
+ *   nori, maki-rice, maki-salmon, cucumber, avocado, sesame,
+ *   nigiri-rice, nigiri-salmon, wasabi, ginger
+ *
+ * Options per model:
+ *   src       path to the .glb file (relative, e.g. './models/wasabi.glb')
+ *   scale     size multiplier (default 1)
+ *   offset    [x, y, z] nudge, in picture widths (default [0, 0, 0])
+ *   rotation  [x, y, z] in degrees (default [0, 0, 0])
+ *
+ * To ADD a new piece (not replace one), also give:
+ *   ingredient  which INGREDIENTS entry its info panel shows (add your own there)
+ *   home        [x, y, z] where it sits when assembled
+ *   exploded    [x, y, z] where it floats to in the "See Inside" view
+ *   label       text of its label in the exploded view (optional)
+ *
+ * Add ?custom=0 to the URL to ignore this list and use the built-in models.
+ */
+const CUSTOM_MODELS = {
+  // 'nigiri-salmon': { src: './models/nigiri-salmon.glb' },
+  // 'wasabi': { src: './models/my-wasabi.glb', scale: 1.2, offset: [0, 0, 0], rotation: [0, 45, 0] },
+  // 'soy-dish': { src: './models/soy-dish.glb', ingredient: 'soy', home: [0.3, 0, 0.3], exploded: [0.3, 0.1, 0.3], label: 'Soy sauce' },
 };
 
 /* =====================================================================
@@ -651,9 +688,10 @@ const NIGIRI = new THREE.Vector3(0.07, 0, -0.01);
 const sushi = new THREE.Group();  // everything, in model space
 const pieces = [];
 
-function addPiece(key, object, home, exploded, opts = {}) {
+// id: unique piece name (used for custom models, see MODELS.md); key: ingredient in INGREDIENTS
+function addPiece(id, key, object, home, exploded, opts = {}) {
   const piece = {
-    key, object,
+    id, key, object,
     homePos: home.pos.clone(), homeQuat: new THREE.Quaternion().setFromEuler(new THREE.Euler(...(home.rot || [0, 0, 0]))),
     expPos: exploded.pos.clone(), expQuat: new THREE.Quaternion().setFromEuler(new THREE.Euler(...(exploded.rot || home.rot || [0, 0, 0]))),
     labelAt: opts.label ? opts.labelAt : null,
@@ -668,6 +706,7 @@ function addPiece(key, object, home, exploded, opts = {}) {
   if (opts.hit) {
     const hit = new THREE.Mesh(opts.hit, new THREE.MeshBasicMaterial({ visible: false }));
     hit.userData.piece = piece;
+    hit.userData.isHit = true;
     object.add(hit);
   }
   if (opts.label) {
@@ -709,7 +748,7 @@ function riceGrains(count, place) {
   const noriGeo = roundedRing(0.0965, 0.1005, H, 0.0015, 72);
   const nori = new THREE.Mesh(noriGeo, std({ color: 0xffffff, map: noriTex, roughness: 0.55, metalness: 0.05, side: THREE.DoubleSide }));
   const noriGroup = new THREE.Group(); noriGroup.add(nori);
-  addPiece('nori', noriGroup,
+  addPiece('nori', 'nori', noriGroup,
     { pos: new THREE.Vector3(MAKI.x, H / 2, MAKI.z) },
     { pos: new THREE.Vector3(-0.32, 0.2, -0.22), rot: [0.35, 0, 0.3] },
     { label: 'Nori', labelAt: new THREE.Vector3(0, H / 2 + 0.03, 0) });
@@ -722,7 +761,7 @@ function riceGrains(count, place) {
     p.set(Math.cos(a) * r, (H - 0.002) / 2 + 0.0005, Math.sin(a) * r);
     n.set(rr(-0.35, 0.35), 1, rr(-0.35, 0.35)).normalize();
   }));
-  addPiece('rice', riceGroup,
+  addPiece('maki-rice', 'rice', riceGroup,
     { pos: new THREE.Vector3(MAKI.x, H / 2, MAKI.z) },
     { pos: new THREE.Vector3(-0.3, 0.08, 0.0), rot: [0.2, 0, 0] },
     { hit: new THREE.CylinderGeometry(0.1, 0.1, H, 20) });
@@ -754,7 +793,7 @@ function riceGrains(count, place) {
     mesh.rotation.y = ang + Math.PI;
     const g = new THREE.Group(); g.add(mesh);
     const r = 0.019;
-    addPiece(key, g,
+    addPiece(key === 'salmon' ? 'maki-salmon' : key, key, g,
       { pos: new THREE.Vector3(MAKI.x + Math.cos(ang) * r, fillH / 2 + 0.001, MAKI.z + Math.sin(ang) * r) },
       { pos: fillExp[key][0], rot: fillExp[key][1] },
       label ? { label, labelAt: new THREE.Vector3(0, fillH / 2 + 0.03, 0), hit: new THREE.BoxGeometry(0.06, fillH, 0.06) }
@@ -773,7 +812,7 @@ function riceGrains(count, place) {
     seeds.setColorAt(i, rand() < 0.3 ? c.setHex(0x221d1a) : c.setHSL(0.1, rr(0.45, 0.6), rr(0.6, 0.72)));
   }
   const seedGroup = new THREE.Group(); seedGroup.add(seeds);
-  addPiece('sesame', seedGroup,
+  addPiece('sesame', 'sesame', seedGroup,
     { pos: new THREE.Vector3(MAKI.x, H + 0.0015, MAKI.z) },
     { pos: new THREE.Vector3(-0.07, 0.36, -0.22), rot: [0.5, 0, 0] },
     { label: 'Sesame seeds', labelAt: new THREE.Vector3(0, 0.025, 0), hit: new THREE.CylinderGeometry(0.1, 0.1, 0.03, 20) });
@@ -807,7 +846,7 @@ const NIGIRI_YAW = -0.22;
     nrm.set(sx / rx, sy / ry, sz / rz).normalize();
     pt.addScaledVector(nrm, -0.0012);
   }));
-  const nigiriRice = addPiece('rice', mound,
+  addPiece('nigiri-rice', 'rice', mound,
     { pos: new THREE.Vector3(NIGIRI.x, halfH, NIGIRI.z), rot: [0, NIGIRI_YAW, 0] },
     { pos: new THREE.Vector3(0.15, 0.04, 0.1), rot: [0, NIGIRI_YAW + 0.3, 0] },
     { label: 'Sushi rice', labelAt: new THREE.Vector3(0, halfH + 0.03, 0) });
@@ -827,7 +866,7 @@ const NIGIRI_YAW = -0.22;
   sg.computeVertexNormals();
   const salmon = new THREE.Group();
   salmon.add(new THREE.Mesh(sg, salmonMat()));
-  addPiece('salmon', salmon,
+  addPiece('nigiri-salmon', 'salmon', salmon,
     { pos: new THREE.Vector3(NIGIRI.x, halfH * 2 + t / 2 - 0.004, NIGIRI.z), rot: [0, NIGIRI_YAW, 0] },
     { pos: new THREE.Vector3(0.19, 0.27, -0.1), rot: [0.25, NIGIRI_YAW + 0.2, 0.08] },
     { label: 'Salmon', labelAt: new THREE.Vector3(0, 0.04, 0) });
@@ -849,7 +888,7 @@ const NIGIRI_YAW = -0.22;
   const mesh = new THREE.Mesh(geo, std({ color: 0x7ea03a, roughness: 0.82 }));
   mesh.position.y = -0.0275;
   const g = new THREE.Group(); g.add(mesh);
-  addPiece('wasabi', g,
+  addPiece('wasabi', 'wasabi', g,
     { pos: new THREE.Vector3(0.37, 0.0275, 0.17) },
     { pos: new THREE.Vector3(0.37, 0.1, 0.24), rot: [0.2, 0, 0] },
     { label: 'Wasabi', labelAt: new THREE.Vector3(0, 0.05, 0), hit: new THREE.SphereGeometry(0.06, 12, 8) });
@@ -876,7 +915,7 @@ const NIGIRI_YAW = -0.22;
     holder.add(petal);
     g.add(holder);
   }
-  addPiece('ginger', g,
+  addPiece('ginger', 'ginger', g,
     { pos: new THREE.Vector3(0.36, 0, -0.15) },
     { pos: new THREE.Vector3(0.38, 0.08, -0.22), rot: [0.45, 0.4, 0] },
     { label: 'Pickled ginger', labelAt: new THREE.Vector3(0, 0.055, 0), hit: new THREE.SphereGeometry(0.065, 12, 8) });
@@ -1009,8 +1048,8 @@ const SVGNS = 'http://www.w3.org/2000/svg';
 const leadersEl = $('leaders');
 const _v = new THREE.Vector3();
 const LABEL_GAP = 14, LABEL_PAD = 5;
-for (const p of pieces) {
-  if (!p.label) continue;
+function ensureLeader(p) {
+  if (p.line) return;
   p.line = document.createElementNS(SVGNS, 'line');
   p.dot = document.createElementNS(SVGNS, 'circle');
   p.dot.setAttribute('r', 3.5);
@@ -1033,6 +1072,7 @@ function updateLabels(camera, canvas) {
   const items = [];
   for (const p of pieces) {
     if (!p.label) continue;
+    ensureLeader(p);
     p.object.localToWorld(_v.copy(p.labelAt));
     _v.project(camera);
     const ax = rect.left + (_v.x * 0.5 + 0.5) * rect.width;
@@ -1413,6 +1453,143 @@ async function startDemo() {
 }
 
 /* =====================================================================
+   Custom models (.glb) and export of the built-in ones. See MODELS.md.
+   ===================================================================== */
+const deg = (v) => (v || [0, 0, 0]).map(THREE.MathUtils.degToRad);
+
+async function loadCustomModels() {
+  const entries = Object.entries(CUSTOM_MODELS);
+  if (!entries.length || params.get('custom') === '0') return;
+  const { GLTFLoader } = await import('three/addons/loaders/GLTFLoader.js');
+  const loader = new GLTFLoader();
+  await Promise.all(entries.map(async ([id, cfg]) => {
+    try {
+      const gltf = await loader.loadAsync(cfg.src);
+      const model = gltf.scene;
+      model.scale.setScalar(cfg.scale ?? 1);
+      model.position.fromArray(cfg.offset || [0, 0, 0]);
+      model.rotation.set(...deg(cfg.rotation));
+      // Give each piece its own materials so the tap highlight only glows it
+      model.traverse((o) => {
+        if (!o.isMesh) return;
+        o.material = Array.isArray(o.material) ? o.material.map((m) => m.clone()) : o.material.clone();
+      });
+      let piece = pieces.find((p) => p.id === id);
+      if (!piece) {
+        // A brand-new piece
+        if (!cfg.ingredient || !INGREDIENTS[cfg.ingredient] || !cfg.home) {
+          throw new Error(`"${id}" isn't a built-in piece, so it needs ingredient (an INGREDIENTS key) and home`);
+        }
+        const size = new THREE.Box3().setFromObject(model).getSize(new THREE.Vector3());
+        piece = addPiece(id, cfg.ingredient, new THREE.Group(),
+          { pos: new THREE.Vector3().fromArray(cfg.home) },
+          { pos: new THREE.Vector3().fromArray(cfg.exploded || cfg.home) },
+          cfg.label ? { label: cfg.label, labelAt: new THREE.Vector3(0, size.y + 0.02, 0) } : {});
+      }
+      // Swap out the built-in meshes (and their tap areas) for the new model
+      const obj = piece.object;
+      for (const child of [...obj.children]) obj.remove(child);
+      obj.add(model);
+      // A generous invisible tap area around the model, for fingers
+      const sphere = new THREE.Box3().setFromObject(model).getBoundingSphere(new THREE.Sphere());
+      obj.updateMatrixWorld(true);
+      const hit = new THREE.Mesh(new THREE.SphereGeometry(Math.max(sphere.radius, 0.05), 12, 8),
+        new THREE.MeshBasicMaterial({ visible: false }));
+      hit.position.copy(sphere.center);
+      hit.userData.isHit = true;
+      obj.add(hit);
+      piece.materials = [];
+      obj.traverse((o) => {
+        o.userData.piece = piece;
+        for (const m of [].concat(o.material || [])) if (m.visible !== false && m.emissive) piece.materials.push(m);
+      });
+    } catch (err) {
+      console.warn(`Custom model "${id}" couldn't be loaded, using the built-in one:`, err);
+    }
+  }));
+}
+
+// Turn a piece into plain meshes (instanced rice/sesame baked into one mesh)
+// in the piece's own coordinates, ready for GLTFExporter.
+function bakePiece(piece) {
+  const obj = piece.object;
+  sushi.updateMatrixWorld(true);
+  const toLocal = obj.matrixWorld.clone().invert();
+  const out = new THREE.Group();
+  out.name = piece.id;
+  const rel = new THREE.Matrix4(), im = new THREE.Matrix4(), c = new THREE.Color();
+  obj.traverse((o) => {
+    if (!o.isMesh || o.userData.isHit || (o.material && o.material.visible === false)) return;
+    rel.multiplyMatrices(toLocal, o.matrixWorld);
+    let geo, mat = o.material;
+    if (o.isInstancedMesh) {
+      const parts = [];
+      for (let i = 0; i < o.count; i++) {
+        o.getMatrixAt(i, im);
+        const g = o.geometry.clone().applyMatrix4(new THREE.Matrix4().multiplyMatrices(rel, im));
+        if (o.instanceColor) {
+          o.getColorAt(i, c);
+          const n = g.attributes.position.count, col = new Float32Array(n * 3);
+          for (let k = 0; k < n; k++) c.toArray(col, k * 3);
+          g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+        }
+        parts.push(g);
+      }
+      geo = mergeGeometries(parts);
+      if (o.instanceColor) { mat = mat.clone(); mat.vertexColors = true; }
+    } else {
+      geo = o.geometry.clone().applyMatrix4(rel);
+    }
+    const m = new THREE.Mesh(geo, mat);
+    m.name = `${piece.id}-${out.children.length + 1}`;
+    out.add(m);
+  });
+  return out;
+}
+
+async function exportModels() {
+  const { GLTFExporter } = await import('three/addons/exporters/GLTFExporter.js');
+  const exporter = new GLTFExporter();
+  for (const p of pieces) for (const m of p.materials) m.emissiveIntensity = 0;
+  const files = {};
+  const assembled = new THREE.Group();
+  assembled.name = 'sushi';
+  for (const p of pieces) {
+    files[`${p.id}.glb`] = await exporter.parseAsync(bakePiece(p), { binary: true });
+    const placed = bakePiece(p);
+    placed.position.copy(p.homePos);
+    placed.quaternion.copy(p.homeQuat);
+    assembled.add(placed);
+  }
+  files['sushi-assembled.glb'] = await exporter.parseAsync(assembled, { binary: true });
+  return files;
+}
+
+// Where each piece sits, for MODELS.md and for lining up your own models
+function pieceTable() {
+  return pieces.map((p) => {
+    const size = new THREE.Box3().setFromObject(bakePiece(p)).getSize(new THREE.Vector3());
+    const r = (v) => v.toArray().map((x) => +x.toFixed(3));
+    return { id: p.id, ingredient: p.key, size: r(size), home: r(p.homePos), exploded: r(p.expPos) };
+  });
+}
+
+// ?export=1 shows download links for every model instead of starting the camera
+async function showExportPage() {
+  $('card').innerHTML = '<div class="logo">📦</div><h1>Download the 3D models</h1><p>Preparing .glb files…</p><div class="spinner"></div>';
+  await loadCustomModels();
+  const files = await exportModels();
+  const links = Object.entries(files).map(([name, buf]) => {
+    const url = URL.createObjectURL(new Blob([buf], { type: 'model/gltf-binary' }));
+    return `<a class="dl" href="${url}" download="${name}">${name} <span>${(buf.byteLength / 1024).toFixed(0)} KB</span></a>`;
+  }).join('');
+  $('card').innerHTML = `<div class="logo">📦</div><h1>Download the 3D models</h1>
+    <p>Each piece as a .glb file you can open in Blender or any 3D editor. See MODELS.md for the full guide.</p>
+    <div class="dl-list">${links}</div><p class="small"><a href="./">Back to the app</a></p>`;
+}
+window.__sushiModels = { exportModels, pieceTable };
+
+/* =====================================================================
    Start
    ===================================================================== */
 function showMessage(html) {
@@ -1427,6 +1604,7 @@ $('startBtn').addEventListener('click', async () => {
   const gyroReady = enableGyro();   // first, while we're still inside the tap
   try {
     await Promise.race([gyroReady, new Promise((r) => setTimeout(r, 4000))]);
+    await loadCustomModels();
     if (DEMO) await startDemo();
     else await startAR();
     overlay.classList.add('hidden');
@@ -1444,8 +1622,9 @@ $('startBtn').addEventListener('click', async () => {
   }
 });
 
+if (params.get('export') === '1') showExportPage();
 // Handy for testing: ?demo=1&autostart=1 skips the start screen.
-if (params.get('autostart') === '1') $('startBtn').click();
+else if (params.get('autostart') === '1') $('startBtn').click();
 </script>
 </body>
 </html>
