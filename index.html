@@ -1,0 +1,1266 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#111111">
+<meta name="description" content="Point your phone at the sushi picture and explore what's inside a sushi roll in augmented reality.">
+<title>Sushi AR Explorer</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🍣</text></svg>">
+<style>
+  :root {
+    --ink: #1d1a17;
+    --muted: #6b6259;
+    --paper: #fffaf3;
+    --accent: #e8643c;
+    --accent-dark: #c44c28;
+    --line: rgba(29, 26, 23, 0.1);
+    --safe-b: env(safe-area-inset-bottom, 0px);
+    --safe-r: env(safe-area-inset-right, 0px);
+    --safe-t: env(safe-area-inset-top, 0px);
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body {
+    margin: 0; height: 100%; overflow: hidden;
+    background: #111; color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  button { font: inherit; cursor: pointer; touch-action: manipulation; }
+
+  /* The AR container. z-index creates a stacking context so MindAR's video
+     (which it gives z-index:-2) still renders above the page background. */
+  #ar {
+    position: fixed; inset: 0; z-index: 0; overflow: hidden;
+    touch-action: none; user-select: none; -webkit-user-select: none;
+  }
+  #ar video { pointer-events: none; }
+  #ar.demo-bg { background: radial-gradient(120% 90% at 50% 30%, #4a4038 0%, #221d19 60%, #141110 100%); }
+  #ar .demo-video {
+    position: absolute; inset: 0; width: 100%; height: 100%;
+    object-fit: cover; z-index: -2;
+  }
+
+  /* ---------- Top bar ---------- */
+  .topbar {
+    position: fixed; z-index: 5; left: 0; right: 0; top: 0;
+    padding: calc(12px + var(--safe-t)) 16px 0;
+    display: flex; justify-content: center; pointer-events: none;
+  }
+  .brand {
+    background: rgba(20, 17, 15, 0.55); color: #fff;
+    -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
+    padding: 7px 14px; border-radius: 999px; font-size: 14px; font-weight: 600;
+    letter-spacing: 0.01em;
+  }
+  .brand small { font-weight: 500; opacity: 0.7; margin-left: 6px; }
+
+  /* ---------- Scanning hint ---------- */
+  #scan {
+    position: fixed; z-index: 4; inset: 0; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 22px; pointer-events: none;
+    transition: opacity 0.35s ease;
+  }
+  #scan.hidden { opacity: 0; }
+  .frame { position: relative; width: min(64vw, 280px); aspect-ratio: 4 / 3; animation: breathe 2.4s ease-in-out infinite; }
+  .frame i { position: absolute; width: 34px; height: 34px; border: 4px solid #fff; opacity: 0.9; }
+  .frame i:nth-child(1) { left: 0; top: 0; border-right: 0; border-bottom: 0; border-top-left-radius: 14px; }
+  .frame i:nth-child(2) { right: 0; top: 0; border-left: 0; border-bottom: 0; border-top-right-radius: 14px; }
+  .frame i:nth-child(3) { left: 0; bottom: 0; border-right: 0; border-top: 0; border-bottom-left-radius: 14px; }
+  .frame i:nth-child(4) { right: 0; bottom: 0; border-left: 0; border-top: 0; border-bottom-right-radius: 14px; }
+  .frame .sweep {
+    position: absolute; left: 8%; right: 8%; height: 2px; top: 10%;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.9), transparent);
+    animation: sweep 2.2s ease-in-out infinite alternate;
+  }
+  @keyframes breathe { 50% { transform: scale(1.04); } }
+  @keyframes sweep { to { top: 88%; } }
+  .pill {
+    background: rgba(20, 17, 15, 0.7); color: #fff; font-size: 16px; font-weight: 600;
+    padding: 11px 18px; border-radius: 999px; text-align: center; max-width: 86vw;
+    -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
+  }
+
+  /* "Tap the sushi" coach mark shown once the model appears */
+  #coach {
+    position: fixed; z-index: 4; left: 50%; top: calc(64px + var(--safe-t));
+    transform: translate(-50%, -8px); opacity: 0; transition: opacity 0.4s, transform 0.4s;
+    pointer-events: none; font-size: 14px; padding: 9px 15px; white-space: nowrap;
+  }
+  #coach.show { opacity: 1; transform: translate(-50%, 0); }
+
+  /* ---------- Labels in exploded view ---------- */
+  #labels { position: fixed; inset: 0; z-index: 3; pointer-events: none; overflow: hidden; }
+  .label {
+    position: absolute; left: 0; top: 0; pointer-events: auto;
+    transform: translate(-50%, -100%); white-space: nowrap;
+    background: rgba(255, 250, 243, 0.94); color: var(--ink); border: 0;
+    font-size: 13px; font-weight: 650; padding: 6px 11px; border-radius: 999px;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.25);
+    opacity: 0; transition: opacity 0.25s, background-color 0.2s, color 0.2s;
+    will-change: transform;
+  }
+  .label::after {
+    content: ""; position: absolute; left: 50%; bottom: -5px; margin-left: -5px;
+    border: 5px solid transparent; border-bottom: 0; border-top-color: rgba(255, 250, 243, 0.94);
+  }
+  .label .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; vertical-align: 1px; }
+  .label.active { background: var(--accent); color: #fff; }
+  .label.active::after { border-top-color: var(--accent); }
+
+  /* ---------- See Inside button ---------- */
+  #toggle {
+    position: fixed; z-index: 6;
+    right: calc(16px + var(--safe-r)); bottom: calc(18px + var(--safe-b));
+    min-height: 52px; padding: 0 22px; border: 0; border-radius: 999px;
+    background: var(--accent); color: #fff; font-size: 16px; font-weight: 700;
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
+    display: flex; align-items: center; gap: 9px;
+    transition: opacity 0.3s, transform 0.3s, background-color 0.2s;
+  }
+  #toggle:active { background: var(--accent-dark); transform: scale(0.97); }
+  #toggle.hidden { opacity: 0; transform: translateY(20px); pointer-events: none; }
+  #toggle svg { width: 20px; height: 20px; }
+
+  /* ---------- Bottom sheet info panel ---------- */
+  #sheet {
+    position: fixed; z-index: 8; left: 0; right: 0; bottom: 0;
+    margin: 0 auto; max-width: 560px; max-height: 64vh; max-height: 64dvh;
+    background: var(--paper); color: var(--ink);
+    border-radius: 22px 22px 0 0; box-shadow: 0 -10px 40px rgba(0, 0, 0, 0.35);
+    transform: translateY(105%); transition: transform 0.38s cubic-bezier(0.2, 0.9, 0.25, 1);
+    display: flex; flex-direction: column;
+  }
+  #sheet.open { transform: translateY(0); }
+  .sheet-head {
+    display: flex; align-items: flex-start; gap: 12px;
+    padding: 10px 14px 10px 20px; border-bottom: 1px solid var(--line); position: relative;
+  }
+  .grab { position: absolute; left: 50%; top: 7px; width: 40px; height: 4px; margin-left: -20px; border-radius: 2px; background: rgba(0, 0, 0, 0.15); }
+  .sheet-title { flex: 1; padding-top: 12px; min-width: 0; }
+  .kicker { font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent-dark); }
+  .sheet-title h2 { margin: 3px 0 2px; font-size: 22px; line-height: 1.2; }
+  .sheet-title .jp { font-size: 14px; color: var(--muted); }
+  #close {
+    flex: none; width: 44px; height: 44px; margin-top: 8px; border: 0; border-radius: 50%;
+    background: rgba(0, 0, 0, 0.07); color: var(--ink); display: grid; place-items: center;
+  }
+  #close:active { background: rgba(0, 0, 0, 0.14); }
+  #close svg { width: 20px; height: 20px; }
+  .sheet-body {
+    overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain;
+    padding: 6px 20px calc(24px + var(--safe-b));
+    font-size: 16px; line-height: 1.55;
+  }
+  .sheet-body h3 { font-size: 15px; margin: 16px 0 4px; display: flex; align-items: center; gap: 8px; }
+  .sheet-body h3 span { font-size: 18px; }
+  .sheet-body p { margin: 0 0 6px; }
+  .sheet-body ul { margin: 4px 0 6px; padding-left: 20px; }
+  .sheet-body li { margin-bottom: 6px; }
+  .sheet-body .tip {
+    margin-top: 16px; padding: 11px 14px; border-radius: 12px;
+    background: #fbeee4; color: #7a3d22; font-size: 14px;
+  }
+
+  /* ---------- Start / loading / error overlay ---------- */
+  #overlay {
+    position: fixed; inset: 0; z-index: 10; display: flex; align-items: center; justify-content: center;
+    padding: 24px; background: radial-gradient(120% 80% at 50% 20%, #3a2f28 0%, #171311 70%);
+    color: #fff; text-align: center; transition: opacity 0.4s;
+  }
+  #overlay.hidden { opacity: 0; pointer-events: none; }
+  .card { max-width: 380px; }
+  .card .logo { font-size: 64px; line-height: 1; }
+  .card h1 { font-size: 28px; margin: 14px 0 8px; }
+  .card p { color: rgba(255, 255, 255, 0.78); line-height: 1.5; margin: 0 0 12px; font-size: 16px; }
+  .card .primary {
+    margin-top: 10px; min-height: 52px; padding: 0 28px; border: 0; border-radius: 999px;
+    background: var(--accent); color: #fff; font-size: 17px; font-weight: 700;
+  }
+  .card .primary:disabled { opacity: 0.6; }
+  .card a { color: #ffb899; }
+  .card .small { font-size: 14px; color: rgba(255, 255, 255, 0.6); margin-top: 18px; }
+  .spinner {
+    width: 36px; height: 36px; margin: 18px auto 0; border-radius: 50%;
+    border: 4px solid rgba(255, 255, 255, 0.2); border-top-color: #fff; animation: spin 0.9s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  @media (prefers-reduced-motion: reduce) {
+    .frame, .frame .sweep, .spinner { animation: none; }
+  }
+</style>
+<!-- MindAR 1.2.5 expects three.js r160 (it still imports sRGBEncoding, removed in later
+     versions), so both are pinned to exact versions through an import map. -->
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/",
+    "mindar-image-three": "https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-three.prod.js"
+  }
+}
+</script>
+</head>
+<body>
+
+<div id="ar"></div>
+
+<div class="topbar"><div class="brand">🍣 Sushi Explorer<small id="modeTag"></small></div></div>
+
+<div id="scan" class="hidden">
+  <div class="frame"><i></i><i></i><i></i><i></i><div class="sweep"></div></div>
+  <div class="pill">Point your camera at the sushi picture</div>
+</div>
+
+<div id="coach" class="pill">Tap the sushi to learn its story</div>
+
+<div id="labels"></div>
+
+<button id="toggle" class="hidden" type="button" aria-pressed="false">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+  <span>See Inside</span>
+</button>
+
+<section id="sheet" role="dialog" aria-modal="false" aria-labelledby="sheetTitle" aria-hidden="true">
+  <div class="sheet-head">
+    <div class="grab"></div>
+    <div class="sheet-title">
+      <div class="kicker" id="sheetKicker"></div>
+      <h2 id="sheetTitle"></h2>
+      <div class="jp" id="sheetJp"></div>
+    </div>
+    <button id="close" type="button" aria-label="Close panel">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+    </button>
+  </div>
+  <div class="sheet-body" id="sheetBody"></div>
+</section>
+
+<div id="overlay">
+  <div class="card" id="card">
+    <div class="logo">🍣</div>
+    <h1>Sushi AR Explorer</h1>
+    <p id="introText">Point your phone at the printed sushi picture to see a 3D sushi appear. Tap it to learn its story, then look inside to meet every ingredient.</p>
+    <button class="primary" id="startBtn" type="button">Start camera</button>
+    <p class="small" id="introSmall">No printout? <a href="?demo=1">Try demo mode</a></p>
+  </div>
+</div>
+
+<script type="module">
+import * as THREE from 'three';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
+
+/* =====================================================================
+   Settings
+   ===================================================================== */
+const params = new URLSearchParams(location.search);
+const DEMO = params.get('demo') === '1';
+const num = (key, fallback) => {
+  const v = parseFloat(params.get(key));
+  return Number.isFinite(v) ? v : fallback;
+};
+
+/*
+ * Tracking stability.
+ *
+ * MindAR smooths the raw pose with a One Euro filter, applied element-wise to
+ * the 4x4 pose matrix, with time measured in milliseconds:
+ *     cutoff = filterMinCF + filterBeta * |speed|
+ *     alpha  = r / (r + 1),  r = 2π · cutoff · Δt
+ * so a lower cutoff means heavier smoothing.
+ *
+ * filterMinCF = 0.0001  (MindAR default 0.001)
+ *   The cutoff when the image is held still. At ~30 tracking fps (Δt ≈ 33 ms)
+ *   this gives alpha ≈ 0.02, so each new frame only nudges the pose ~2%.
+ *   Frame-to-frame detector noise (the cause of jitter) is averaged away over
+ *   about a second. This is the main anti-wobble setting.
+ * filterBeta = 0.001  (MindAR default 1000)
+ *   How much the cutoff opens up when the pose is really moving. MindAR's
+ *   default of 1000 lets almost all noise through. At 0.001, a phone moving at
+ *   a normal hand speed (translation changing a few hundred marker-pixels per
+ *   second) raises the cutoff to ~0.0004–0.002, so alpha rises to ~0.08–0.3 and
+ *   the model follows within a few tenths of a second. Tiny jitter, whose
+ *   speed is near zero, never opens the filter. Higher beta values (0.01+)
+ *   follow faster but let visible shimmer back in. Lower ones (0.0001) make the
+ *   model trail behind noticeably when you move.
+ * warmupTolerance = 8  (default 5)
+ *   The target has to be tracked for 8 consecutive frames (~0.25–0.4 s) before
+ *   the model is shown, so a half-found first pose never pops in skewed.
+ * missTolerance = 15  (default 5)
+ *   Tracking can drop for up to 15 frames (~0.5 s) with the model held at
+ *   its last pose, so it doesn't flicker out from motion blur, glare or a
+ *   finger crossing the picture.
+ *
+ * Every value can be overridden in the URL for on-device tuning, e.g.
+ *   ?mincf=0.0003&beta=0.005&warmup=5&miss=20&smooth=0
+ */
+const TRACKING = {
+  filterMinCF: num('mincf', 0.0001),
+  filterBeta: num('beta', 0.001),
+  warmupTolerance: Math.round(num('warmup', 8)),
+  missTolerance: Math.round(num('miss', 15)),
+};
+
+/*
+ * Extra smoothing on top of MindAR, applied every *render* frame (60 fps)
+ * between the displayed model and the latest tracked pose. MindAR only updates
+ * at the tracking rate (15–30 fps on phones), so snapping to it would step.
+ *
+ * - posRate / rotRate: exponential approach speed per second. Blend factor is
+ *   1 - exp(-rate · dt), which is the same at any frame rate. At 16/s the
+ *   model covers ~63% of the gap in 60 ms: smooth, and still barely any extra lag.
+ * - fastBoost: when the gap is large (real movement, see fastPos/fastRot)
+ *   the rate is multiplied so the model doesn't trail behind the picture.
+ * - posDeadzone / rotDeadzone: movements smaller than 0.35% of the marker
+ *   width (~0.6 mm on an 18 cm print) or 0.4° are ignored while the model is
+ *   settled. Once the error goes past that, the model moves smoothly until it's
+ *   within settleFactor × deadzone, then locks again. That hysteresis stops
+ *   it creeping back and forth on noise that's left over.
+ */
+const SMOOTH = {
+  enabled: params.get('smooth') !== '0',
+  posRate: 16,
+  rotRate: 14,
+  fastBoost: 2.5,
+  fastPos: 0.04,                           // fraction of marker width
+  fastRot: THREE.MathUtils.degToRad(6),
+  posDeadzone: 0.0035,                     // fraction of marker width
+  rotDeadzone: THREE.MathUtils.degToRad(0.4),
+  settleFactor: 0.3,
+};
+
+/* =====================================================================
+   Content
+   ===================================================================== */
+const HISTORY = {
+  kicker: 'The story of sushi',
+  title: 'From preserved fish to global favourite',
+  jp: '寿司 · sushi',
+  sections: [
+    ['🐟', 'It began as a way to keep fish',
+      'The earliest sushi, <b>narezushi</b>, was salted fish packed in cooked rice and left to ferment for months. The fermenting rice made the fish safe to eat and was usually thrown away. The method probably came from Southeast Asia and southern China, and reached Japan by the 8th century, when sushi was even paid as tax. <b>Funazushi</b>, fermented carp from Lake Biwa, is still made this way.'],
+    ['🍶', 'Along comes vinegar',
+      'Over the centuries the fermenting time got shorter and people started eating the rice too. Then, in the Edo period (1603–1868), cooks began mixing <b>rice vinegar</b> into the rice. It gave the same tangy flavour straight away, with no waiting. This was called <i>hayazushi</i>, or "fast sushi".'],
+    ['🏮', 'Nigiri: Tokyo\'s fast food',
+      'Around the 1820s, street stalls in Edo (today\'s Tokyo) began selling <b>nigiri</b>: fresh fish from Tokyo Bay pressed onto a mouthful of vinegared rice. Hanaya Yohei is often credited with making it popular. People ate it standing up at the stall, like a snack on the go. Pieces were bigger than today\'s, and fish was often marinated, salted or simmered because there were no fridges.'],
+    ['🌏', 'Sushi goes worldwide',
+      'In the 20th century, refrigeration and fast transport made raw fish easy to get. The first conveyor-belt sushi restaurant opened in Osaka in 1958. Sushi bars opened in Los Angeles in the 1960s, and the <b>California roll</b>, with avocado inside and rice on the outside, won over new fans. Today you can find sushi almost everywhere in the world.'],
+  ],
+  tip: 'Tap <b>See Inside</b> to take this sushi apart and meet each ingredient.',
+};
+
+const INGREDIENTS = {
+  nori: {
+    name: 'Nori', jp: '海苔 · nori', swatch: '#27351f',
+    what: 'Thin, crisp sheets of dried seaweed. They come from a red alga called <i>Pyropia</i> that turns dark green-black once it\'s dried and toasted. Nori holds the roll together.',
+    how: 'The seaweed is farmed on nets in cold coastal water over winter. It\'s washed, chopped, and spread thinly on screens, a lot like making paper by hand. Then it\'s dried into sheets and toasted to make it crisp and fragrant.',
+    facts: [
+      'In 1949 a British scientist, <b>Kathleen Drew-Baker</b>, worked out the seaweed\'s hidden life cycle. That helped save Japan\'s nori farms after harvests failed. People in Uto, Kumamoto still honour her as the "Mother of the Sea".',
+      'A standard full sheet is about 21 × 19 cm, a size fixed in the Edo period.',
+    ],
+    history: 'Seaweed has been eaten in Japan for well over a thousand years. The Taihō Code of 701 lists it among goods paid as tax. Paper-thin sheets appeared in the Edo period, reportedly first in Asakusa in Edo, using paper-making methods. By the 18th century, sushi rolled in nori (<i>norimaki</i>) was catching on.',
+  },
+  rice: {
+    name: 'Sushi rice', jp: 'シャリ · shari', swatch: '#f3eee2',
+    what: 'Short-grain Japanese rice seasoned with rice vinegar, sugar and salt. It\'s sticky enough to hold its shape but each grain stays separate.',
+    how: 'The rice is rinsed until the water runs clear and cooked slightly firm. While it\'s still hot, the seasoning is folded in inside a wide wooden tub (<i>hangiri</i>). The chef cuts and turns the rice while someone fans it, so it turns glossy instead of mushy. It\'s served close to body temperature.',
+    facts: [
+      'Sushi chefs call the rice <b>shari</b>, a Buddhist word for the Buddha\'s relics, which were said to look like small white grains.',
+      'Many sushi masters say the rice matters more than the fish. Apprentices traditionally spent years learning to make it.',
+    ],
+    history: 'In the earliest sushi, rice was only there to ferment the fish and was thrown away. Adding vinegar in the Edo period made the rice the star. Some traditional Tokyo shops still use <i>akazu</i>, a red vinegar made from sake lees that became popular with Edo sushi makers in the 1800s.',
+  },
+  salmon: {
+    name: 'Salmon', jp: 'サーモン · sāmon', swatch: '#f47a4a',
+    what: 'Rich, buttery, bright-orange fish, eaten raw. For sushi it is usually farmed Atlantic salmon.',
+    how: 'Salmon for raw eating is kept very cold and usually frozen first to kill any parasites. The chef removes the skin and small pin bones. Then they slice across the grain at an angle, in one long pull of a thin <i>yanagiba</i> knife, so the cut edges stay smooth.',
+    facts: [
+      'The orange colour comes from <b>astaxanthin</b>, a pigment in the krill and shrimp wild salmon eat. Farmed salmon get it in their feed.',
+      'The white stripes are layers of fat. That fat is what makes salmon feel like it melts in your mouth.',
+    ],
+    history: 'Salmon wasn\'t a traditional sushi topping at all. Wild Japanese salmon could carry parasites, so it was eaten salted or grilled instead. In the 1980s Norway started <i>Project Japan</i> to sell its chilled, farmed salmon for eating raw. By the 1990s salmon sushi was a hit, and it\'s now one of the most popular toppings in Japan.',
+  },
+  cucumber: {
+    name: 'Cucumber', jp: 'きゅうり · kyūri', swatch: '#5d8a3a',
+    what: 'Crisp, juicy Japanese cucumber, which is thin-skinned with very few seeds. It gives a cool crunch against the soft rice and fish.',
+    how: 'The cucumber is cut into long, thin batons. The seedy middle is often trimmed away so the roll doesn\'t get soggy, and sometimes it\'s lightly salted to firm it up.',
+    facts: [
+      'A roll with only cucumber is called <b>kappa maki</b>. It\'s named after the <i>kappa</i>, a mischievous river creature from Japanese folklore that loves cucumbers.',
+      'Cucumbers are about 95% water, which is why they taste so refreshing.',
+    ],
+    history: 'Cucumbers came to Japan from China over a thousand years ago and were being grown by the Heian period. At the sushi counter, cucumber rolls became a light, vegetarian classic, often eaten between richer pieces of fish.',
+  },
+  avocado: {
+    name: 'Avocado', jp: 'アボカド · abokado', swatch: '#a8c256',
+    what: 'The creamy fruit of the avocado tree, first grown in Mexico and Central America. In a roll it adds smooth richness.',
+    how: 'A ripe but still firm avocado is halved, peeled and cut into long strips. A squeeze of lemon can stop it turning brown.',
+    facts: [
+      'Botanists call the avocado a big berry with a single seed.',
+      'In Japan it\'s nicknamed <b>mori no batā</b>, "butter of the forest".',
+    ],
+    history: 'Avocado is a newcomer to sushi. In 1960s–70s Los Angeles, sushi chefs used local avocado in place of fatty tuna (<i>toro</i>), because it has a similar rich, creamy feel. The result was the <b>California roll</b>, and avocado rolls later caught on in Japan too.',
+  },
+  sesame: {
+    name: 'Sesame seeds', jp: 'ごま · goma', swatch: '#e9d9b0',
+    what: 'Tiny, oil-rich seeds from the sesame plant, in white and black varieties. They add a nutty flavour and a little crunch.',
+    how: 'The seeds are dry-toasted in a pan until they smell nutty and start to pop. For sauces they\'re ground in a ridged bowl called a <i>suribachi</i>.',
+    facts: [
+      'Sesame is one of the oldest oilseed crops people grow.',
+      'Ripe sesame pods burst open with a pop, which may have inspired the magic words "Open sesame!"',
+    ],
+    history: 'Sesame reached Japan from mainland Asia in ancient times. It became important in Buddhist temple cooking (<i>shōjin ryōri</i>), for example in silky <i>goma-dōfu</i>, "sesame tofu". Today it\'s sprinkled over many rolls, especially inside-out ones.',
+  },
+  wasabi: {
+    name: 'Wasabi', jp: 'わさび · wasabi', swatch: '#8fb24a',
+    what: 'A sharp, fresh green paste made by grating the thick stem of the wasabi plant, a relative of cabbage and mustard.',
+    how: 'Wasabi grows slowly, over a year or more, in cold, clean mountain stream water. Chefs grate it in small circles on a fine grater, traditionally one covered in sharkskin. The flavour peaks a few minutes after grating and then fades, so it\'s grated fresh.',
+    facts: [
+      'Wasabi\'s heat rushes up your nose instead of burning your tongue like chilli, and it fades quickly.',
+      'Much of the "wasabi" served outside Japan is really horseradish, mustard and green colouring.',
+    ],
+    history: 'Wasabi was listed as a medicinal plant in Japan in the 10th century. Farming began around 1600 in Utogi, in Shizuoka, and the shogun Tokugawa Ieyasu is said to have prized it. In Edo nigiri, a dab between rice and fish added flavour and was believed to help keep raw fish safe.',
+  },
+  ginger: {
+    name: 'Pickled ginger', jp: 'ガリ · gari', swatch: '#f4bcb2',
+    what: 'Sweet, tangy, paper-thin slices of young ginger. It\'s served on the side, not on the sushi.',
+    how: 'Young ginger is sliced very thin, blanched or salted, then soaked in rice vinegar, sugar and salt. The pink tips of young ginger turn the pickle a pale pink naturally. Bright pink gari is usually coloured.',
+    facts: [
+      'It\'s a palate cleanser: a slice between pieces refreshes your mouth so you can taste the next fish properly.',
+      '<b>Gari</b> is sushi-bar slang, said to copy the crunchy "gari-gari" sound of biting or slicing it.',
+    ],
+    history: 'Ginger has grown in Japan since ancient times. A 3rd-century Chinese chronicle already mentions it there. Sweet vinegar-pickled ginger has long been the standard side dish at sushi counters, just right with rich, oily fish.',
+  },
+};
+
+/* =====================================================================
+   DOM helpers
+   ===================================================================== */
+const $ = (id) => document.getElementById(id);
+const arEl = $('ar');
+const scanEl = $('scan');
+const coachEl = $('coach');
+const labelsEl = $('labels');
+const toggleBtn = $('toggle');
+const sheet = $('sheet');
+const overlay = $('overlay');
+
+if (DEMO) {
+  $('modeTag').textContent = 'demo';
+  $('introText').textContent = 'Demo mode shows the sushi floating in front of you, with no printed picture needed. Tap it to learn its story, then look inside to meet every ingredient.';
+  $('startBtn').textContent = 'Start demo';
+  $('introSmall').innerHTML = 'Have the printout? <a href="./">Use AR mode</a>';
+}
+
+/* ---------- Info panel (only one open at a time) ---------- */
+let panelKey = null;
+function openPanel(key) {
+  const d = key === 'history' ? HISTORY : INGREDIENTS[key];
+  $('sheetKicker').textContent = key === 'history' ? d.kicker : 'Ingredient';
+  $('sheetTitle').textContent = key === 'history' ? d.title : d.name;
+  $('sheetJp').textContent = d.jp;
+  let html = '';
+  if (key === 'history') {
+    for (const [icon, h, p] of d.sections) html += `<h3><span>${icon}</span>${h}</h3><p>${p}</p>`;
+    html += `<div class="tip">${d.tip}</div>`;
+  } else {
+    html += `<h3><span>🔍</span>What it is</h3><p>${d.what}</p>`;
+    html += `<h3><span>🔪</span>How it's made</h3><p>${d.how}</p>`;
+    html += `<h3><span>✨</span>Fun facts</h3><ul>${d.facts.map((f) => `<li>${f}</li>`).join('')}</ul>`;
+    html += `<h3><span>📜</span>In Japanese cuisine</h3><p>${d.history}</p>`;
+  }
+  $('sheetBody').innerHTML = html;
+  $('sheetBody').scrollTop = 0;
+  panelKey = key;
+  sheet.classList.add('open');
+  sheet.setAttribute('aria-hidden', 'false');
+  updateToggleVisibility();
+}
+function closePanel() {
+  panelKey = null;
+  sheet.classList.remove('open');
+  sheet.setAttribute('aria-hidden', 'true');
+  selectPiece(null);
+  updateToggleVisibility();
+}
+$('close').addEventListener('click', closePanel);
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closePanel(); });
+
+/* =====================================================================
+   Procedural textures
+   ===================================================================== */
+// Deterministic PRNG so the sushi looks the same every load.
+let seed = 1337;
+const rand = () => ((seed = (seed * 16807) % 2147483647) - 1) / 2147483646;
+const rr = (a, b) => a + (b - a) * rand();
+
+function canvasTexture(w, h, draw, repeat = [1, 1]) {
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  draw(c.getContext('2d'), w, h);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.repeat.set(repeat[0], repeat[1]);
+  t.anisotropy = 4;
+  return t;
+}
+
+const riceTex = canvasTexture(256, 256, (g, w, h) => {
+  g.fillStyle = '#e9e2d3'; g.fillRect(0, 0, w, h);
+  for (let i = 0; i < 520; i++) {
+    const x = rr(0, w), y = rr(0, h), a = rr(0, Math.PI);
+    const rx = rr(7, 10), ry = rr(3.5, 5);
+    for (const [dx, dy] of [[0, 0], [w, 0], [-w, 0], [0, h], [0, -h]]) {
+      g.save(); g.translate(x + dx, y + dy); g.rotate(a);
+      g.beginPath(); g.ellipse(0, 0, rx, ry, 0, 0, Math.PI * 2);
+      g.fillStyle = `hsl(42, ${rr(20, 35)}%, ${rr(91, 97)}%)`; g.fill();
+      g.strokeStyle = 'rgba(150,130,100,0.25)'; g.lineWidth = 1; g.stroke();
+      g.restore();
+    }
+  }
+}, [3, 1]);
+
+const noriTex = canvasTexture(256, 256, (g, w, h) => {
+  g.fillStyle = '#243121'; g.fillRect(0, 0, w, h);
+  for (let i = 0; i < 1400; i++) {
+    const x = rr(0, w), y = rr(0, h), l = rr(3, 14), a = rr(0, Math.PI);
+    g.strokeStyle = rand() < 0.5 ? `rgba(60,80,45,${rr(0.2, 0.5)})` : `rgba(8,12,8,${rr(0.2, 0.6)})`;
+    g.lineWidth = rr(0.6, 1.6);
+    g.beginPath(); g.moveTo(x, y); g.lineTo(x + Math.cos(a) * l, y + Math.sin(a) * l); g.stroke();
+  }
+}, [4, 1]);
+
+const salmonTex = canvasTexture(512, 256, (g, w, h) => {
+  const grad = g.createLinearGradient(0, 0, 0, h);
+  grad.addColorStop(0, '#f2682f'); grad.addColorStop(0.5, '#e85420'); grad.addColorStop(1, '#f06e36');
+  g.fillStyle = grad; g.fillRect(0, 0, w, h);
+  // Curved white fat lines running diagonally across the fillet
+  for (let i = -6; i < 16; i++) {
+    const x0 = i * 38 + rr(-6, 6);
+    g.strokeStyle = `rgba(255, 214, 190, ${rr(0.6, 0.8)})`;
+    g.lineWidth = rr(4, 7);
+    g.beginPath(); g.moveTo(x0, -10);
+    g.bezierCurveTo(x0 + 40, h * 0.3, x0 + 20, h * 0.7, x0 + 70, h + 10);
+    g.stroke();
+    g.strokeStyle = 'rgba(255,240,228,0.35)'; g.lineWidth = 2;
+    g.beginPath(); g.moveTo(x0 + 16, -10);
+    g.bezierCurveTo(x0 + 56, h * 0.3, x0 + 36, h * 0.7, x0 + 86, h + 10);
+    g.stroke();
+  }
+});
+
+const shadowTex = canvasTexture(128, 128, (g, w, h) => {
+  const grad = g.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, w / 2);
+  grad.addColorStop(0, 'rgba(0,0,0,0.75)'); grad.addColorStop(0.55, 'rgba(0,0,0,0.3)'); grad.addColorStop(1, 'rgba(0,0,0,0)');
+  g.fillStyle = grad; g.fillRect(0, 0, w, h);
+});
+shadowTex.colorSpace = THREE.NoColorSpace;
+
+/* =====================================================================
+   Geometry helpers
+   ===================================================================== */
+// Box with rounded edges that stays evenly subdivided (so it can be bent).
+function roundedSlab(w, h, d, r, sx, sy, sz, uvPlane = 'xz') {
+  let g = new THREE.BoxGeometry(w, h, d, sx, sy, sz);
+  const p = g.attributes.position, v = new THREE.Vector3(), inner = new THREE.Vector3();
+  const hx = w / 2 - r, hy = h / 2 - r, hz = d / 2 - r;
+  for (let i = 0; i < p.count; i++) {
+    v.fromBufferAttribute(p, i);
+    inner.set(THREE.MathUtils.clamp(v.x, -hx, hx), THREE.MathUtils.clamp(v.y, -hy, hy), THREE.MathUtils.clamp(v.z, -hz, hz));
+    v.sub(inner);
+    if (v.lengthSq() > 0) v.setLength(r);
+    v.add(inner);
+    p.setXYZ(i, v.x, v.y, v.z);
+  }
+  g.deleteAttribute('normal'); g.deleteAttribute('uv');
+  g = mergeVertices(g);
+  planarUV(g, uvPlane, w, h, d);
+  g.computeVertexNormals();
+  return g;
+}
+function planarUV(g, plane, w, h, d) {
+  const p = g.attributes.position, uv = new Float32Array(p.count * 2);
+  for (let i = 0; i < p.count; i++) {
+    const x = p.getX(i), y = p.getY(i), z = p.getZ(i);
+    uv[i * 2] = plane === 'xy' ? x / w + 0.5 : x / w + 0.5;
+    uv[i * 2 + 1] = plane === 'xy' ? y / h + 0.5 : z / d + 0.5;
+  }
+  g.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+}
+// A ring (tube with thickness) with rounded rim, made by spinning a profile.
+function roundedRing(rIn, rOut, h, r, segs = 64) {
+  const pts = [], n = 6;
+  const corner = (cx, cy, a0) => {
+    for (let i = 0; i <= n; i++) {
+      const a = a0 + (i / n) * Math.PI / 2;
+      pts.push(new THREE.Vector2(cx + Math.cos(a) * r, cy + Math.sin(a) * r));
+    }
+  };
+  // counter-clockwise around the cross-section
+  corner(rIn + r, -h / 2 + r, Math.PI);           // inner bottom
+  corner(rOut - r, -h / 2 + r, -Math.PI / 2);     // outer bottom
+  corner(rOut - r, h / 2 - r, 0);                 // outer top
+  corner(rIn + r, h / 2 - r, Math.PI / 2);        // inner top
+  pts.push(pts[0].clone());
+  return new THREE.LatheGeometry(pts, segs);
+}
+function vertexColors(g, fn) {
+  const p = g.attributes.position, col = new Float32Array(p.count * 3), c = new THREE.Color();
+  for (let i = 0; i < p.count; i++) {
+    fn(c, p.getX(i), p.getY(i), p.getZ(i));
+    col[i * 3] = c.r; col[i * 3 + 1] = c.g; col[i * 3 + 2] = c.b;
+  }
+  g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  return g;
+}
+
+/* ---------- Materials ---------- */
+const ENV_I = 0.55;
+const std = (o) => new THREE.MeshStandardMaterial({ envMapIntensity: ENV_I, ...o });
+const phys = (o) => new THREE.MeshPhysicalMaterial({ envMapIntensity: ENV_I, ...o });
+const riceMat = () => std({ color: 0xffffff, map: riceTex, roughness: 0.72, side: THREE.DoubleSide });
+const grainMat = () => phys({ color: 0xfbf6ea, roughness: 0.45, clearcoat: 0.35, clearcoatRoughness: 0.5 });
+const salmonMat = () => phys({ color: 0xffffff, map: salmonTex, roughness: 0.38, clearcoat: 0.7, clearcoatRoughness: 0.25, sheen: 0.2, sheenColor: new THREE.Color(0xffb48a) });
+
+/* =====================================================================
+   Build the sushi
+   ===================================================================== */
+// Model space: y is up (out of the printed picture), 1 unit = picture width.
+const H = 0.12;           // maki height
+const MAKI = new THREE.Vector3(-0.25, 0, 0.03);
+const NIGIRI = new THREE.Vector3(0.07, 0, -0.01);
+
+const sushi = new THREE.Group();  // everything, in model space
+const pieces = [];
+
+function addPiece(key, object, home, exploded, opts = {}) {
+  const piece = {
+    key, object,
+    homePos: home.pos.clone(), homeQuat: new THREE.Quaternion().setFromEuler(new THREE.Euler(...(home.rot || [0, 0, 0]))),
+    expPos: exploded.pos.clone(), expQuat: new THREE.Quaternion().setFromEuler(new THREE.Euler(...(exploded.rot || home.rot || [0, 0, 0]))),
+    labelAt: opts.label ? opts.labelAt : null,
+    label: null, materials: [], glow: 0, scale: 1, index: pieces.length,
+  };
+  object.position.copy(piece.homePos);
+  object.quaternion.copy(piece.homeQuat);
+  object.traverse((o) => {
+    o.userData.piece = piece;
+    if (o.material && o.material.visible !== false) piece.materials.push(o.material);
+  });
+  if (opts.hit) {
+    const hit = new THREE.Mesh(opts.hit, new THREE.MeshBasicMaterial({ visible: false }));
+    hit.userData.piece = piece;
+    object.add(hit);
+  }
+  if (opts.label) {
+    const el = document.createElement('button');
+    el.type = 'button';
+    el.className = 'label';
+    el.innerHTML = `<span class="dot" style="background:${INGREDIENTS[key].swatch}"></span>${opts.label}`;
+    el.addEventListener('click', (e) => { e.stopPropagation(); if (exploded_ > 0.5) choosePiece(piece); });
+    labelsEl.appendChild(el);
+    piece.label = el;
+  }
+  sushi.add(object);
+  pieces.push(piece);
+  return piece;
+}
+let exploded_ = 0; // eased explode progress (read by label clicks)
+
+// Rice grains scattered on a surface, as one instanced mesh.
+function riceGrains(count, place) {
+  const geo = new THREE.SphereGeometry(1, 7, 5);
+  const mesh = new THREE.InstancedMesh(geo, grainMat(), count);
+  const m = new THREE.Matrix4(), q = new THREE.Quaternion(), s = new THREE.Vector3(), p = new THREE.Vector3(), n = new THREE.Vector3();
+  const up = new THREE.Vector3(0, 1, 0), spin = new THREE.Quaternion();
+  for (let i = 0; i < count; i++) {
+    place(p, n);
+    q.setFromUnitVectors(up, n);
+    spin.setFromAxisAngle(up, rr(0, Math.PI * 2));
+    q.multiply(spin);
+    s.set(rr(0.0075, 0.0095), rr(0.0028, 0.0038), rr(0.0038, 0.0048));
+    m.compose(p, q, s);
+    mesh.setMatrixAt(i, m);
+  }
+  return mesh;
+}
+
+/* ----- Maki roll ----- */
+{
+  // Nori wrapper
+  const noriGeo = roundedRing(0.0965, 0.1005, H, 0.0015, 72);
+  const nori = new THREE.Mesh(noriGeo, std({ color: 0xffffff, map: noriTex, roughness: 0.55, metalness: 0.05, side: THREE.DoubleSide }));
+  const noriGroup = new THREE.Group(); noriGroup.add(nori);
+  addPiece('nori', noriGroup,
+    { pos: new THREE.Vector3(MAKI.x, H / 2, MAKI.z) },
+    { pos: new THREE.Vector3(-0.32, 0.2, -0.22), rot: [0.35, 0, 0.3] },
+    { label: 'Nori', labelAt: new THREE.Vector3(0, H / 2 + 0.03, 0) });
+
+  // Rice ring with grains on the cut face
+  const riceGroup = new THREE.Group();
+  riceGroup.add(new THREE.Mesh(roundedRing(0.041, 0.0965, H - 0.002, 0.009, 64), riceMat()));
+  riceGroup.add(riceGrains(300, (p, n) => {
+    const a = rr(0, Math.PI * 2), r = Math.sqrt(rr(0.047 ** 2, 0.093 ** 2));
+    p.set(Math.cos(a) * r, (H - 0.002) / 2 + 0.0005, Math.sin(a) * r);
+    n.set(rr(-0.35, 0.35), 1, rr(-0.35, 0.35)).normalize();
+  }));
+  addPiece('rice', riceGroup,
+    { pos: new THREE.Vector3(MAKI.x, H / 2, MAKI.z) },
+    { pos: new THREE.Vector3(-0.3, 0.08, 0.0), rot: [0.2, 0, 0] },
+    { hit: new THREE.CylinderGeometry(0.1, 0.1, H, 20) });
+
+  // Fillings: three batons in the middle
+  const fillH = H - 0.008;
+  const fillings = [
+    ['salmon', 0.037, Math.PI / 2 * 3, null],
+    ['cucumber', 0.03, Math.PI / 6, 'Cucumber'],
+    ['avocado', 0.034, Math.PI * 5 / 6, 'Avocado'],
+  ];
+  const fillExp = {
+    cucumber: [new THREE.Vector3(-0.38, 0.1, 0.27), [0, 0.5, -0.2]],
+    salmon: [new THREE.Vector3(-0.235, 0.13, 0.29), [0, 0.3, 0]],
+    avocado: [new THREE.Vector3(-0.09, 0.1, 0.27), [0, -0.4, 0.2]],
+  };
+  for (const [key, size, ang, label] of fillings) {
+    const geo = roundedSlab(size, fillH, size, 0.006, 6, 12, 6, 'xy');
+    let mat;
+    if (key === 'salmon') mat = salmonMat();
+    else if (key === 'cucumber') {
+      vertexColors(geo, (c, x, y, z) => c.set(x > size * 0.3 ? 0x2f5a22 : (x > size * 0.15 ? 0x6f9a45 : 0xd6e8b0)));
+      mat = phys({ vertexColors: true, roughness: 0.35, clearcoat: 0.5 });
+    } else {
+      vertexColors(geo, (c, x) => c.setHex(0xe6e79c).lerp(new THREE.Color(0x7fa43a), THREE.MathUtils.smoothstep(x / size + 0.5, 0.45, 1)));
+      mat = phys({ vertexColors: true, roughness: 0.4, clearcoat: 0.3 });
+    }
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.rotation.y = ang + Math.PI;
+    const g = new THREE.Group(); g.add(mesh);
+    const r = 0.019;
+    addPiece(key, g,
+      { pos: new THREE.Vector3(MAKI.x + Math.cos(ang) * r, fillH / 2 + 0.001, MAKI.z + Math.sin(ang) * r) },
+      { pos: fillExp[key][0], rot: fillExp[key][1] },
+      label ? { label, labelAt: new THREE.Vector3(0, fillH / 2 + 0.03, 0), hit: new THREE.BoxGeometry(0.06, fillH, 0.06) }
+            : { hit: new THREE.BoxGeometry(0.06, fillH, 0.06) });
+  }
+
+  // Sesame seeds sprinkled on top
+  const n = 60;
+  const seeds = new THREE.InstancedMesh(new THREE.SphereGeometry(1, 8, 6), phys({ color: 0xffffff, roughness: 0.45, clearcoat: 0.4 }), n);
+  const m = new THREE.Matrix4(), q = new THREE.Quaternion(), c = new THREE.Color();
+  for (let i = 0; i < n; i++) {
+    const a = rr(0, Math.PI * 2), r = Math.sqrt(rr(0.05 ** 2, 0.092 ** 2));
+    q.setFromEuler(new THREE.Euler(rr(-0.3, 0.3), rr(0, Math.PI * 2), rr(-0.3, 0.3)));
+    m.compose(new THREE.Vector3(Math.cos(a) * r, 0, Math.sin(a) * r), q, new THREE.Vector3(0.0055, 0.0022, 0.0034));
+    seeds.setMatrixAt(i, m);
+    seeds.setColorAt(i, rand() < 0.3 ? c.setHex(0x221d1a) : c.setHSL(0.1, rr(0.45, 0.6), rr(0.6, 0.72)));
+  }
+  const seedGroup = new THREE.Group(); seedGroup.add(seeds);
+  addPiece('sesame', seedGroup,
+    { pos: new THREE.Vector3(MAKI.x, H + 0.0015, MAKI.z) },
+    { pos: new THREE.Vector3(-0.07, 0.36, -0.22), rot: [0.5, 0, 0] },
+    { label: 'Sesame seeds', labelAt: new THREE.Vector3(0, 0.025, 0), hit: new THREE.CylinderGeometry(0.1, 0.1, 0.03, 20) });
+}
+
+/* ----- Salmon nigiri ----- */
+const NIGIRI_YAW = -0.22;
+{
+  // Rice mound: squashed sphere with a flat base
+  const rx = 0.118, ry = 0.052, rz = 0.057, cut = -0.5;
+  const geo = new THREE.SphereGeometry(1, 48, 28);
+  const p = geo.attributes.position;
+  for (let i = 0; i < p.count; i++) {
+    let x = p.getX(i), y = p.getY(i), z = p.getZ(i);
+    // slightly boxier than an ellipse, like a hand-pressed mound
+    const k = 1 + 0.12 * (1 - Math.abs(y));
+    x *= k; z *= k;
+    if (y < cut) y = cut;
+    p.setXYZ(i, x * rx, (y - cut) * ry - ry * (1 - cut) / 2, z * rz);
+  }
+  geo.computeVertexNormals();
+  const mound = new THREE.Group();
+  mound.add(new THREE.Mesh(geo, riceMat()));
+  const halfH = ry * (1 - cut) / 2;
+  mound.add(riceGrains(420, (pt, nrm) => {
+    // sample upper surface of the ellipsoid
+    const u = rr(0, Math.PI * 2), v = Math.acos(rr(cut + 0.08, 1));
+    const sx = Math.sin(v) * Math.cos(u), sy = Math.cos(v), sz = Math.sin(v) * Math.sin(u);
+    const k = 1 + 0.12 * (1 - Math.abs(sy));
+    pt.set(sx * k * rx, (sy - cut) * ry - halfH, sz * k * rz);
+    nrm.set(sx / rx, sy / ry, sz / rz).normalize();
+    pt.addScaledVector(nrm, -0.0012);
+  }));
+  const nigiriRice = addPiece('rice', mound,
+    { pos: new THREE.Vector3(NIGIRI.x, halfH, NIGIRI.z), rot: [0, NIGIRI_YAW, 0] },
+    { pos: new THREE.Vector3(0.15, 0.04, 0.1), rot: [0, NIGIRI_YAW + 0.3, 0] },
+    { label: 'Sushi rice', labelAt: new THREE.Vector3(0, halfH + 0.03, 0) });
+
+  // Salmon slice draped over the rice
+  const w = 0.27, t = 0.03, d = 0.122;
+  const sg = roundedSlab(w, t, d, 0.011, 40, 4, 14, 'xz');
+  const sp = sg.attributes.position;
+  for (let i = 0; i < sp.count; i++) {
+    const x = sp.getX(i), y = sp.getY(i), z = sp.getZ(i);
+    const u = x / (w / 2);
+    const thin = 1 - 0.4 * u * u;                          // thinner towards the ends
+    const drape = -0.05 * u * u - 0.35 * z * z;            // bend over the mound
+    const taper = 1 - 0.12 * Math.abs(u);                  // slightly narrower ends
+    sp.setXYZ(i, x, y * thin + drape + 0.004 * Math.sin(u * 5), z * taper);
+  }
+  sg.computeVertexNormals();
+  const salmon = new THREE.Group();
+  salmon.add(new THREE.Mesh(sg, salmonMat()));
+  addPiece('salmon', salmon,
+    { pos: new THREE.Vector3(NIGIRI.x, halfH * 2 + t / 2 - 0.004, NIGIRI.z), rot: [0, NIGIRI_YAW, 0] },
+    { pos: new THREE.Vector3(0.19, 0.27, -0.1), rot: [0.25, NIGIRI_YAW + 0.2, 0.08] },
+    { label: 'Salmon', labelAt: new THREE.Vector3(0, 0.04, 0) });
+}
+
+/* ----- Wasabi ----- */
+{
+  const prof = [[0, 0], [0.036, 0], [0.04, 0.006], [0.037, 0.016], [0.029, 0.027], [0.02, 0.036], [0.011, 0.045], [0.005, 0.052], [0, 0.055]]
+    .map(([x, y]) => new THREE.Vector2(x, y));
+  const geo = new THREE.LatheGeometry(prof, 48);
+  const p = geo.attributes.position;
+  for (let i = 0; i < p.count; i++) {
+    const x = p.getX(i), y = p.getY(i), z = p.getZ(i);
+    const a = Math.atan2(z, x);
+    const k = 1 + 0.07 * Math.sin(a * 3 + y * 70) + 0.03 * Math.sin(a * 11 + y * 200);
+    p.setXYZ(i, x * k, y, z * k);
+  }
+  geo.computeVertexNormals();
+  const mesh = new THREE.Mesh(geo, std({ color: 0x7ea03a, roughness: 0.82 }));
+  mesh.position.y = -0.0275;
+  const g = new THREE.Group(); g.add(mesh);
+  addPiece('wasabi', g,
+    { pos: new THREE.Vector3(0.37, 0.0275, 0.17) },
+    { pos: new THREE.Vector3(0.37, 0.1, 0.24), rot: [0.2, 0, 0] },
+    { label: 'Wasabi', labelAt: new THREE.Vector3(0, 0.05, 0), hit: new THREE.SphereGeometry(0.06, 12, 8) });
+}
+
+/* ----- Pickled ginger ----- */
+{
+  const g = new THREE.Group();
+  const mat = phys({ color: 0xea8c7c, roughness: 0.28, clearcoat: 0.8, clearcoatRoughness: 0.2, transparent: true, opacity: 0.93, side: THREE.DoubleSide });
+  for (let i = 0; i < 6; i++) {
+    const geo = new THREE.CircleGeometry(1, 32, 0, Math.PI * 2);
+    const p = geo.attributes.position;
+    const sx = rr(0.038, 0.046), sy = rr(0.027, 0.033);
+    for (let j = 0; j < p.count; j++) {
+      const x = p.getX(j), y = p.getY(j);
+      p.setXYZ(j, x * sx * (1 + 0.06 * Math.sin(y * 7)), y * sy, 0.016 * x * x + 0.004 * Math.sin(x * 6 + i));
+    }
+    geo.computeVertexNormals();
+    const petal = new THREE.Mesh(geo, mat);
+    petal.rotation.set(-Math.PI / 2 + 0.35 + rr(-0.1, 0.1), 0, 0);
+    const holder = new THREE.Group();
+    holder.rotation.y = (i / 6) * Math.PI * 2 + rr(-0.2, 0.2);
+    petal.position.set(0, 0.006 + i * 0.004, 0.012);
+    holder.add(petal);
+    g.add(holder);
+  }
+  addPiece('ginger', g,
+    { pos: new THREE.Vector3(0.36, 0, -0.15) },
+    { pos: new THREE.Vector3(0.38, 0.08, -0.22), rot: [0.45, 0.4, 0] },
+    { label: 'Pickled ginger', labelAt: new THREE.Vector3(0, 0.055, 0), hit: new THREE.SphereGeometry(0.065, 12, 8) });
+}
+
+/* ----- Soft contact shadows (stay on the picture while pieces float) ----- */
+const shadows = [];
+function addShadow(x, z, sx, sz, rot = 0, strength = 0.55) {
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(1, 1),
+    new THREE.MeshBasicMaterial({ map: shadowTex, transparent: true, depthWrite: false, opacity: strength, color: 0x000000 }));
+  m.rotation.set(-Math.PI / 2, 0, rot);
+  m.scale.set(sx, sz, 1);
+  m.position.set(x, 0.0008, z);
+  m.renderOrder = -1;
+  m.userData.base = strength;
+  sushi.add(m);
+  shadows.push(m);
+}
+addShadow(MAKI.x, MAKI.z, 0.3, 0.3);
+addShadow(NIGIRI.x, NIGIRI.z, 0.34, 0.17, -NIGIRI_YAW);
+addShadow(0.37, 0.17, 0.12, 0.12, 0, 0.45);
+addShadow(0.36, -0.15, 0.14, 0.14, 0, 0.4);
+
+/* =====================================================================
+   Scene graph
+   root (pose from tracker / demo) → spin (demo drag) → sushi (model space)
+   The picture's plane is root's XY plane with +Z pointing out of the
+   picture, so the model is turned so its "up" (+Y) matches that.
+   ===================================================================== */
+const root = new THREE.Group();
+root.matrixAutoUpdate = true;
+root.visible = false;
+const spin = new THREE.Group();
+root.add(spin);
+spin.add(sushi);
+sushi.rotation.x = Math.PI / 2;
+
+function setupLighting(scene, renderer) {
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 0.95;
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  scene.environment = pmrem.fromScene(new RoomEnvironment(renderer), 0.04).texture;
+  pmrem.dispose();
+
+  // Lights live inside the model's frame so the light always comes from
+  // "above" the picture, however the phone is held.
+  sushi.add(new THREE.HemisphereLight(0xfff4e6, 0x6a5a4a, 1.3));
+  const key = new THREE.DirectionalLight(0xfff1dc, 2.4);
+  key.position.set(-0.6, 1.2, 0.8);
+  const fill = new THREE.DirectionalLight(0xdfe8ff, 0.7);
+  fill.position.set(0.9, 0.6, 0.4);
+  const rim = new THREE.DirectionalLight(0xffffff, 1.1);
+  rim.position.set(0.2, 0.7, -1);
+  for (const l of [key, fill, rim]) { sushi.add(l); sushi.add(l.target); }
+  scene.add(root);
+}
+
+/* =====================================================================
+   Explode / highlight animation
+   ===================================================================== */
+let explodeTarget = 0;   // 0 = assembled, 1 = exploded
+let explodeP = 0;        // linear progress
+const EXPLODE_TIME = 1.1;
+const STAGGER = 0.05;
+const easeInOut = (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
+let selected = null;
+const _q = new THREE.Quaternion();
+
+function setExploded(on) {
+  explodeTarget = on ? 1 : 0;
+  coachEl.classList.remove('show');
+  coachDone = true;
+  toggleBtn.querySelector('span').textContent = on ? 'Put Back Together' : 'See Inside';
+  toggleBtn.setAttribute('aria-pressed', String(on));
+  if (!on) {
+    // Leaving the exploded view: drop the ingredient panel and highlight
+    if (panelKey && panelKey !== 'history') closePanel();
+    selectPiece(null);
+  }
+}
+toggleBtn.addEventListener('click', () => setExploded(explodeTarget === 0));
+
+function selectPiece(piece) { selected = piece; }
+function choosePiece(piece) {
+  selectPiece(piece);
+  openPanel(piece.key);
+}
+
+function animatePieces(dt, time) {
+  const dir = explodeTarget > explodeP ? 1 : -1;
+  if (explodeP !== explodeTarget) {
+    explodeP = THREE.MathUtils.clamp(explodeP + dir * dt / EXPLODE_TIME, 0, 1);
+  }
+  const span = 1 - STAGGER * (pieces.length - 1);
+  let labelsOn = explodeP > 0.92 && explodeTarget === 1;
+  exploded_ = explodeP;
+  for (const piece of pieces) {
+    const local = THREE.MathUtils.clamp((explodeP - piece.index * STAGGER) / span, 0, 1);
+    const e = easeInOut(local);
+    const o = piece.object;
+    o.position.lerpVectors(piece.homePos, piece.expPos, e);
+    // Float up in an arc on the way, and bob gently once apart
+    o.position.y += Math.sin(Math.PI * e) * 0.05 + Math.sin(time * 1.3 + piece.index * 1.7) * 0.006 * e;
+    o.quaternion.slerpQuaternions(piece.homeQuat, piece.expQuat, e);
+
+    // Highlight: gentle scale-up and warm pulsing glow on the selected piece
+    const hi = selected && selected.key === piece.key && explodeP > 0.5;
+    const k = 1 - Math.exp(-dt * 10);
+    piece.scale += ((hi ? 1.16 : 1) - piece.scale) * k;
+    piece.glow += ((hi ? 1 : 0) - piece.glow) * k;
+    o.scale.setScalar(piece.scale);
+    const glow = piece.glow * (0.22 + 0.08 * Math.sin(time * 4));
+    for (const m of piece.materials) {
+      m.emissive.setHex(0xffb070);
+      m.emissiveIntensity = glow;
+    }
+    if (piece.label) {
+      piece.label.style.opacity = labelsOn ? 1 : 0;
+      piece.label.style.pointerEvents = labelsOn ? 'auto' : 'none';
+      piece.label.classList.toggle('active', !!hi);
+    }
+  }
+  for (const s of shadows) s.material.opacity = s.userData.base * (1 - 0.55 * easeInOut(explodeP));
+}
+
+/* ---------- Labels: project 3D anchor points to the screen ---------- */
+const _v = new THREE.Vector3();
+function updateLabels(camera, canvas) {
+  if (explodeP < 0.9 || !root.visible) {
+    for (const p of pieces) if (p.label) p.label.style.opacity = 0, p.label.style.pointerEvents = 'none';
+    return;
+  }
+  const rect = canvas.getBoundingClientRect();
+  for (const p of pieces) {
+    if (!p.label) continue;
+    p.object.localToWorld(_v.copy(p.labelAt));
+    _v.project(camera);
+    const behind = _v.z > 1;
+    // Keep labels fully on screen (clamped to the viewport edges)
+    const half = (p.labelW ||= p.label.offsetWidth) / 2 + 8;
+    const x = THREE.MathUtils.clamp(rect.left + (_v.x * 0.5 + 0.5) * rect.width, half, window.innerWidth - half);
+    const y = rect.top + (-_v.y * 0.5 + 0.5) * rect.height;
+    p.label.style.transform = `translate(${x.toFixed(1)}px, ${y.toFixed(1)}px) translate(-50%, -100%)`;
+    if (behind) p.label.style.opacity = 0;
+  }
+}
+
+/* =====================================================================
+   Tap detection (Raycaster), tuned for touchscreens
+   ===================================================================== */
+const raycaster = new THREE.Raycaster();
+const ndc = new THREE.Vector2();
+let activeCamera = null, activeCanvas = null;
+let down = null;
+let dragSpin = 0;   // demo-mode drag rotation velocity
+
+arEl.addEventListener('pointerdown', (e) => {
+  if (!e.isPrimary) return;
+  down = { x: e.clientX, y: e.clientY, t: performance.now(), lastX: e.clientX, moved: false };
+});
+arEl.addEventListener('pointermove', (e) => {
+  if (!down || !e.isPrimary) return;
+  if (Math.hypot(e.clientX - down.x, e.clientY - down.y) > 12) down.moved = true;
+  if (DEMO && down.moved) {
+    const dx = e.clientX - down.lastX;
+    spin.rotation.z += dx * 0.008;
+    dragSpin = dx * 0.008 * 60;
+  }
+  down.lastX = e.clientX;
+});
+arEl.addEventListener('pointerup', (e) => {
+  if (!down || !e.isPrimary) return;
+  const d = down; down = null;
+  // A tap = short press without much movement (fingers wobble a few px).
+  if (d.moved || performance.now() - d.t > 700) return;
+  handleTap(e.clientX, e.clientY);
+});
+arEl.addEventListener('pointercancel', () => { down = null; });
+
+function handleTap(cx, cy) {
+  if (!root.visible || !activeCamera) return;
+  const rect = activeCanvas.getBoundingClientRect();
+  ndc.set(((cx - rect.left) / rect.width) * 2 - 1, -((cy - rect.top) / rect.height) * 2 + 1);
+  root.updateMatrixWorld(true);
+  raycaster.setFromCamera(ndc, activeCamera);
+  let hit = firstPiece(raycaster.intersectObjects(pieces.map((p) => p.object), true));
+  if (!hit) {
+    // Fingers are big: retry with a few samples around the touch point.
+    const r = 18;
+    for (const [ox, oy] of [[r, 0], [-r, 0], [0, r], [0, -r], [r, r], [-r, -r], [r, -r], [-r, r]]) {
+      ndc.set(((cx + ox - rect.left) / rect.width) * 2 - 1, -((cy + oy - rect.top) / rect.height) * 2 + 1);
+      raycaster.setFromCamera(ndc, activeCamera);
+      hit = firstPiece(raycaster.intersectObjects(pieces.map((p) => p.object), true));
+      if (hit) break;
+    }
+  }
+  if (!hit) return;
+  coachEl.classList.remove('show');
+  coachDone = true;
+  if (explodeTarget === 1 && explodeP > 0.5) choosePiece(hit);
+  else if (explodeTarget === 0) openPanel('history');
+}
+function firstPiece(hits) {
+  for (const h of hits) if (h.object.userData.piece) return h.object.userData.piece;
+  return null;
+}
+
+/* =====================================================================
+   Shared UI state
+   ===================================================================== */
+let sushiShown = false;
+let coachDone = false;
+let appear = 0;
+function setSushiShown(on) {
+  sushiShown = on;
+  scanEl.classList.toggle('hidden', on);
+  if (on && !coachDone) coachEl.classList.add('show');
+  if (!on) coachEl.classList.remove('show');
+  updateToggleVisibility();
+}
+function updateToggleVisibility() {
+  // Hide the button while a panel covers the bottom of the screen
+  toggleBtn.classList.toggle('hidden', !sushiShown || !!panelKey);
+}
+
+/* =====================================================================
+   AR mode (MindAR)
+   ===================================================================== */
+async function startAR() {
+  const { MindARThree } = await import('mindar-image-three');
+  const mindar = new MindARThree({
+    container: arEl,
+    imageTargetSrc: './targets.mind',
+    maxTrack: 1,
+    uiLoading: 'no', uiScanning: 'no', uiError: 'no',
+    ...TRACKING,
+  });
+  const { renderer, scene, camera } = mindar;
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  setupLighting(scene, renderer);
+  activeCamera = camera; activeCanvas = renderer.domElement;
+
+  const anchor = mindar.addAnchor(0);
+  let tracked = false, needSnap = true;
+  anchor.onTargetFound = () => { tracked = true; needSnap = true; };
+  anchor.onTargetLost = () => { tracked = false; };
+
+  await mindar.start();
+  scanEl.classList.remove('hidden');
+
+  // Smoothed display pose
+  const tPos = new THREE.Vector3(), tQuat = new THREE.Quaternion(), tScale = new THREE.Vector3();
+  let settled = false;
+  const clock = new THREE.Clock();
+
+  renderer.setAnimationLoop(() => {
+    const dt = Math.min(clock.getDelta(), 0.1), time = clock.elapsedTime;
+    if (tracked && anchor.group.matrix.determinant() !== 0) {
+      anchor.group.matrix.decompose(tPos, tQuat, tScale);
+      tQuat.normalize(); // the filter smooths matrix elements, so re-normalise
+      if (needSnap || !SMOOTH.enabled) {
+        root.position.copy(tPos); root.quaternion.copy(tQuat); root.scale.copy(tScale);
+        needSnap = false; settled = true;
+        if (!root.visible) appear = 0;
+      } else {
+        const unit = tScale.x;                          // marker width in world units
+        const dPos = root.position.distanceTo(tPos) / unit;
+        const dRot = root.quaternion.angleTo(tQuat);
+        const dz = settled ? 1 : SMOOTH.settleFactor;   // hysteresis
+        if (dPos > SMOOTH.posDeadzone * dz || dRot > SMOOTH.rotDeadzone * dz) {
+          settled = false;
+          const fast = dPos > SMOOTH.fastPos || dRot > SMOOTH.fastRot ? SMOOTH.fastBoost : 1;
+          const kp = 1 - Math.exp(-SMOOTH.posRate * fast * dt);
+          const kr = 1 - Math.exp(-SMOOTH.rotRate * fast * dt);
+          root.position.lerp(tPos, kp);
+          root.scale.lerp(tScale, kp);
+          root.quaternion.slerp(tQuat, kr);
+        } else {
+          settled = true;
+        }
+      }
+      if (!root.visible) { root.visible = true; setSushiShown(true); }
+    } else if (root.visible) {
+      root.visible = false;
+      setSushiShown(false);
+    }
+    appear = Math.min(1, appear + dt / 0.35);
+    spin.scale.setScalar(0.85 + 0.15 * easeInOut(appear));
+    animatePieces(dt, time);
+    renderer.render(scene, camera);
+    updateLabels(camera, renderer.domElement);
+  });
+}
+
+/* =====================================================================
+   Demo mode (?demo=1): no tracking, sushi floats in front of the camera
+   ===================================================================== */
+async function startDemo() {
+  const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.domElement.style.position = 'absolute';
+  renderer.domElement.style.inset = '0';
+  arEl.appendChild(renderer.domElement);
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(55, 1, 0.01, 50);
+  setupLighting(scene, renderer);
+  activeCamera = camera; activeCanvas = renderer.domElement;
+
+  // Camera feed as background if available; a warm gradient otherwise.
+  arEl.classList.add('demo-bg');
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
+    const video = document.createElement('video');
+    video.className = 'demo-video';
+    video.setAttribute('playsinline', ''); video.setAttribute('muted', ''); video.muted = true; video.autoplay = true;
+    video.srcObject = stream;
+    arEl.appendChild(video);
+    await video.play().catch(() => {});
+  } catch (err) {
+    console.info('Demo mode without camera background:', err && err.message);
+  }
+
+  // A dark slate board stands in for the printed picture.
+  const board = new THREE.Mesh(roundedSlab(1.08, 0.03, 0.8, 0.012, 8, 2, 8),
+    std({ color: 0x2c2a2b, roughness: 0.85, metalness: 0.0 }));
+  board.position.y = -0.0151;
+  sushi.add(board);
+
+  let baseY = 0.02;
+  function resize() {
+    const w = arEl.clientWidth, h = arEl.clientHeight;
+    renderer.setSize(w, h, false);
+    renderer.domElement.style.width = w + 'px';
+    renderer.domElement.style.height = h + 'px';
+    camera.aspect = w / h;
+    camera.updateProjectionMatrix();
+    // Fit the 1.1-unit-wide board horizontally (portrait phones) or vertically.
+    const vHalf = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
+    const hHalf = vHalf * camera.aspect;
+    const dist = Math.max(0.5 / hHalf, 0.75 / vHalf, 1.1);
+    // Sit a little above centre so an open info panel doesn't cover it.
+    baseY = camera.aspect < 1 ? 0.14 : 0.02;
+    root.position.set(0, baseY, -dist);
+  }
+  window.addEventListener('resize', resize);
+  resize();
+
+  // Tilt the "table" so we look down on it at about 50°.
+  root.rotation.set(-0.85, 0, 0);
+  root.visible = true;
+  setSushiShown(true);
+
+  const clock = new THREE.Clock();
+  renderer.setAnimationLoop(() => {
+    const dt = Math.min(clock.getDelta(), 0.1), time = clock.elapsedTime;
+    // Gentle float
+    root.rotation.x = -0.85 + Math.sin(time * 0.6) * 0.04;
+    root.position.y = baseY + Math.sin(time * 0.9) * 0.012;
+    if (!down) { spin.rotation.z += dragSpin * dt; dragSpin *= Math.exp(-dt * 3); }
+    appear = Math.min(1, appear + dt / 0.5);
+    spin.scale.setScalar(0.85 + 0.15 * easeInOut(appear));
+    animatePieces(dt, time);
+    renderer.render(scene, camera);
+    updateLabels(camera, renderer.domElement);
+  });
+}
+
+/* =====================================================================
+   Start
+   ===================================================================== */
+function showMessage(html) {
+  overlay.classList.remove('hidden');
+  $('card').innerHTML = html;
+}
+
+$('startBtn').addEventListener('click', async () => {
+  const btn = $('startBtn');
+  btn.disabled = true;
+  btn.insertAdjacentHTML('afterend', '<div class="spinner" aria-label="Loading"></div>');
+  try {
+    if (DEMO) await startDemo();
+    else await startAR();
+    overlay.classList.add('hidden');
+  } catch (err) {
+    console.error(err);
+    const insecure = !window.isSecureContext;
+    showMessage(`
+      <div class="logo">📷</div>
+      <h1>Camera unavailable</h1>
+      <p>${insecure
+        ? 'The camera only works over HTTPS. Open the GitHub Pages link (https://…) instead.'
+        : 'We couldn\'t start the camera. Check that this site is allowed to use the camera in your browser settings, then try again.'}</p>
+      <button class="primary" type="button" onclick="location.reload()">Try again</button>
+      <p class="small">Or explore without a camera: <a href="?demo=1">demo mode</a></p>`);
+  }
+});
+
+// Handy for testing: ?demo=1&autostart=1 skips the start screen.
+if (params.get('autostart') === '1') $('startBtn').click();
+</script>
+</body>
+</html>
