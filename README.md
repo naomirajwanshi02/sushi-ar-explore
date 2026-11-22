@@ -1,114 +1,82 @@
-# 🍣 Sushi AR Explorer
+# Anatomy of Sushi: WebAR
 
-An educational WebAR experience. Point your phone at the printed sushi picture
-and a 3D sushi appears on it: a maki roll with a piece of salmon nigiri, plus
-wasabi and pickled ginger. Tap it to learn the history of sushi, then press
-**See Inside** to take it apart and learn about each ingredient.
+**Live:** https://naomirajwanshi02.github.io/sushi-ar-explore/ (open it on your phone and tap **Allow camera**)
 
-**Live:** https://naomirajwanshi02.github.io/sushi-ar-explore/
-**Demo (no printout needed):** https://naomirajwanshi02.github.io/sushi-ar-explore/?demo=1
+Three pieces of nigiri on a cypress serving board appear over the live camera, after the
+painting you scan: a sweet omelette tied on with a seaweed belt, lean tuna, and salmon topped
+with salmon roe. **Tap the sushi** and every piece comes apart, layer by layer, the way it was
+made. **Tap any floating piece** (or its picture in the tray) for its name and a line about it.
+
+It follows the same flow and look as the other NomAR explorers (Ramen Anatomy, Noh Masks):
+the Anatomy kit in its sepia theme, plates, red pill buttons, a glass name card and a tray of parts.
+There is no small text and no Japanese text anywhere.
+
+## The flow
+
+1. **Allow camera access.** One tap, the browser asks for the camera.
+2. **Viewfinder.** Point the camera at the sushi picture ([`sushi_main.jpeg`](sushi_main.jpeg), printed or on
+   another screen). This happens **once**: the picture is not needed again after that.
+3. **Instructions** appear over the live camera, with the sushi already floating behind them. Tap **Start**.
+4. **The sushi.**
+   - **iPhone:** the sushi floats steady over the camera. Drag to turn it any way, pinch to zoom.
+   - **Android** (Chrome with ARCore): Start opens room tracking (WebXR). Move over a table until a ring appears
+     and tap to set the board down at real size (21 cm), then walk round it. If room tracking can't start, the
+     sushi floats over the camera instead.
+   - ✕ goes back to the instructions; Start brings the sushi back.
+
+## The 8 parts
+
+| Part | On the board | Apart |
+|---|---|---|
+| Serving board | a cypress plank on two feet | stays at the bottom |
+| Sushi rice | three hand-pressed oval beds, grain by grain | lifts off the board |
+| Wasabi | a dab hidden under the tuna and the salmon | floats between rice and fish |
+| Seaweed belt | ties the omelette onto its rice | turns to show its loop |
+| Sweet omelette | a layered block, browned on top | tips its top toward you |
+| Tuna | a deep red slice cut at an angle | tips its top toward you |
+| Salmon | orange, striped with white fat | tips its top toward you |
+| Salmon roe | a little heap of pearls on the salmon | a loose ring of pearls at the top |
+
+## Controls
+
+- **Tap the sushi** or **Take it apart** to explode it, **Put it back together** to rebuild it
+- **Tap a piece** or a tray picture: its name and one line appear on the card at the top
+- **Pinch** to zoom (0.25× to 5×), **drag** in any direction to turn it; a flick keeps it turning for a moment
+- Keyboard: Space / Enter explode, ← → step through the parts, Esc rebuild
+
+## Print the picture
+
+Print `sushi_main.jpeg` about **18 cm wide** on **matte** paper (glossy paper throws glare that hides it from the
+camera). Don't crop it. A tablet or second screen showing it also works.
+
+## URL options
+
+- `?from=hub`: opened from the [Scan to Explore](https://github.com/naomirajwanshi02/Scan_To_Explore) hub; a ✕ on the
+  first screens goes back to it. The hub also adds `?demo=1`, which skips the scan because the hub has already
+  recognised the picture. Neither shows a button on screen.
+- `?card=1`: float the sushi over the camera even where room tracking works
+- `?apart=1`: open already apart; `?part=<id>`: open with that part picked (`board rice wasabi nori omelette tuna salmon roe`)
+- `?preview=1`: development only, no camera
+
+## Run locally
+
+```
+powershell -ExecutionPolicy Bypass -File tools/serve.ps1
+```
+
+Then open http://localhost:8140/. The camera needs https (or localhost), so use the live GitHub Pages link on a phone.
+
+## Changing the picture
+
+`assets/sushi-trigger.png` is the painting. `tools/make-target.html?build=1` (served by `tools/serve.ps1`) lays it
+on white as `sushi_main.jpeg` and compiles `targets.mind` with MindAR's own compiler. If the picture changes, the
+Scan to Explore hub's `targets.mind` must be rebuilt too, since it recognises the same picture.
 
 ## Files
 
-| File | What it is |
-|---|---|
-| `index.html` | The whole app in one file: inline CSS and JS. three.js and MindAR load from a CDN, and every 3D model is built in code. No build step. |
-| `sushi_main.jpeg` | The image target. Print this. |
-| `targets.mind` | MindAR's compiled data for `sushi_main.jpeg`. Used as-is. |
-| `models/` | Every sushi piece as a `.glb` 3D file, for opening in Blender or using as a reference for your own models. |
-| `MODELS.md` | **Guide to the 3D models:** how they're built, and how to replace them or add your own. |
-
-## How to use it
-
-1. Print the target (see below) and put it on a table.
-2. Open the live link on your phone and tap **Start camera**. Allow camera access.
-3. Point the camera at the picture. A "Point your camera at the sushi picture" hint shows until the picture is found.
-4. **Tap the sushi** to open a short history of sushi, from fermented *narezushi* to Edo-period nigiri to sushi around the world.
-5. Tap **See Inside** (bottom-right). The sushi splits into labelled layers: nori, sushi rice, salmon, cucumber, avocado, sesame seeds, wasabi and pickled ginger.
-6. **Tap any piece or its label.** It glows and grows slightly, and a panel opens with what it is, how it's made, fun facts, and its history in Japanese cuisine.
-7. Tap **Put Back Together** to reassemble it.
-
-Info panels slide up from the bottom. Close them with the ✕ button. Only one panel is open at a time.
-
-Works in Android Chrome and iPhone Safari (iOS 14.3+). The camera only works over
-**HTTPS**, which GitHub Pages provides. All paths are relative, so the folder also
-works from any other HTTPS host.
-
-## Testing without the printout: `?demo=1`
-
-Open `index.html?demo=1`. Tracking is skipped completely. The sushi floats in
-front of you on a slate board, with the camera feed behind it if the camera is
-allowed. Everything else works the same: tapping, See Inside, info panels.
-In demo mode you can drag sideways to spin the sushi. If your phone has a gyroscope, the sushi stays put in space as you turn the phone.
-
-Local testing:
-
-```bash
-npx http-server -p 8080 .
-# then open http://localhost:8080/?demo=1
-```
-
-`localhost` counts as a secure origin, so the camera works there too. To test on a
-phone, use the HTTPS GitHub Pages URL.
-
-## Printing the target
-
-- Print `sushi_main.jpeg` about **18 cm wide**. It's 3:2, so about 18 × 12 cm.
-- Use **matte paper**. Glossy paper reflects light, and glare breaks tracking.
-- Don't crop it or change the proportions. `targets.mind` was compiled from the full image.
-- Lay it flat with good, even light. Hold the phone about 20–40 cm away.
-- A tablet or monitor showing the image works too, but less reliably, because screens reflect light.
-
-## Keeping the model locked to the picture
-
-Once the sushi appears, it stays fixed to the picture. You can move and turn your phone
-to look at it from any side, like the AR apps used for architecture. That works in three layers,
-all explained in comments in `index.html` (search for `TRACKING` and `FUSION`):
-
-1. **Gyroscope.** The phone's motion sensor measures turning instantly. Turning the phone
-   moves the model on screen by exactly the opposite amount, with no waiting for camera
-   tracking, so it doesn't drag behind the picture.
-2. **Camera tracking (MindAR)** corrects the position: where the picture is and how far
-   you've walked. Tracking results are lined up with the gyroscope reading from the moment
-   their camera frame was taken, so the tracking delay doesn't show.
-3. **Adaptive smoothing with a deadzone.** Jitter-sized differences are smoothed heavily or
-   ignored, so the model is still at rest. Big differences, such as walking around the picture,
-   are followed quickly.
-
-If tracking drops for a moment (steep angle, glare, a hand in the way), the gyroscope
-holds the model in place for about 1.5 s. On iPhone, Safari asks for **motion access**
-when you tap Start. Allow it, or the model won't stay as steady.
-
-Tracking needs the picture in view. Very steep angles (almost edge-on) lose it, so move
-around the picture rather than down to table level. A bigger print tracks from further away.
-
-### Tuning on a device
-
-Override values in the URL:
-
-```
-?mincf=0.01&beta=0.02    # MindAR's own filter (default 0.005 / 0.01, deliberately light)
-?warmup=5&miss=15        # frames before showing / frames of dropout tolerated
-?lat=60                  # camera latency in ms used to line up gyro and video (default 45)
-?gyro=0                  # turn off the gyroscope, to compare
-?smooth=0                # turn off all extra smoothing, to compare
-```
-
-## Your own 3D models
-
-The sushi is built in code, but every piece can be swapped for your own `.glb` model, and you
-can add new pieces. See **[MODELS.md](MODELS.md)** for the step-by-step guide (including Blender).
-The built-in pieces are in `models/` as `.glb` files, and `?export=1` re-exports them.
-
-## Tech notes
-
-- Font: **Urbanist** (Google Fonts), falling back to the system font offline.
-- **three.js 0.160.0** and **mind-ar 1.2.5**, pinned in an import map. MindAR 1.2.5 imports
-  `sRGBEncoding`, which later versions of three.js removed, so don't upgrade either one alone.
-- All models are made in code: lathed rings for the nori and rice, rounded bent slabs
-  for the fish and fillings, instanced rice grains and sesame seeds, and canvas-generated
-  textures. Lighting is a soft hemisphere, key, fill and rim setup plus a procedural room
-  environment map, so the salmon has a gentle sheen. Nothing else needs downloading after the CDN scripts.
-- Tap detection uses a three.js `Raycaster` with pointer events. It separates a tap from a
-  drag and retries a few nearby points if the first ray misses, which helps with fingers
-  on small pieces. Small pieces like sesame seeds and wasabi also have larger invisible hit areas.
+- `js/sushi.js` builds the model in centimetres: both poses of every part and the explode timing
+- `js/textures.js` paints the canvas textures (cypress grain, rice, tuna, salmon, omelette layers, nori)
+- `js/stage.js` runs the three modes (picture scan then floating, WebXR room, preview), drag, pinch and tap picking, and the tray pictures
+- `js/app.js` runs the screens and the UI; `js/data.js` holds the part names and lines; `js/look.js` is the shared lighting
+- `css/anatomy-sepia.css` and `vendor/anatomy/iso.css` are the Anatomy design tokens; `css/app.css` is the UI
+- mind-ar 1.2.5 and three 0.160.0 are pinned to match the other NomAR apps

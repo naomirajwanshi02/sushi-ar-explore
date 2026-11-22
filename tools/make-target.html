@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Anatomy of Sushi target maker</title>
+<style>
+  body{margin:0;padding:16px;background:#ecdfc6;color:#3b2a1c;font:16px/1.5 ui-monospace,Consolas,monospace}
+  img{max-width:100%;box-shadow:0 0 0 1px #8c7457;display:block;margin:10px 0}
+  button{font:inherit;padding:8px 14px;margin-right:6px}
+  #log{white-space:pre-wrap}
+</style></head>
+<body>
+<p>Makes the picture the app looks for. It lays the sushi illustration (<code>assets/sushi-trigger.png</code>, transparent) on white paper as
+<b>sushi_main.jpeg</b>, the picture you print, and compiles that into <b>targets.mind</b> with MindAR's own compiler.
+Run it from <code>tools/serve.ps1</code>, which accepts the files back. <code>?build=1</code> does both.</p>
+<button id="draw">1 · Make picture</button><button id="compile">2 · Compile .mind</button>
+<div id="log"></div>
+<div id="out"></div>
+<script type="module">
+const log = (t) => { document.getElementById('log').textContent += t + '\n'; };
+const out = document.getElementById('out');
+const load = (src) => new Promise((ok, fail) => { const i = new Image(); i.onload = () => ok(i); i.onerror = fail; i.src = src; });
+
+// the illustration on white, exactly as printed (no cropping: the tracker learns the whole frame)
+async function draw(){
+  const img = await load('../assets/sushi-trigger.png?' + Date.now());
+  const c = document.createElement('canvas'); c.width = img.width; c.height = img.height;
+  const g = c.getContext('2d');
+  g.fillStyle = '#ffffff'; g.fillRect(0, 0, c.width, c.height);
+  g.drawImage(img, 0, 0);
+  const blob = await new Promise((ok) => c.toBlob(ok, 'image/jpeg', 0.94));
+  out.innerHTML = '';
+  const shown = new Image(); shown.src = URL.createObjectURL(blob); out.appendChild(shown);
+  const res = await fetch('/__save?name=sushi_main.jpeg', { method: 'POST', body: blob });
+  log(`sushi_main.jpeg: ${res.ok ? 'saved' : 'save failed'} (${c.width} × ${c.height}, ${(blob.size / 1024).toFixed(0)} KB)`);
+}
+
+async function compile(){
+  log('loading MindAR compiler…');
+  await import('https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image.prod.js');
+  // onload, not decode(): decode() never settles in a background tab
+  const img = await load('../sushi_main.jpeg?' + Date.now());
+  const compiler = new window.MINDAR.IMAGE.Compiler();
+  let last = -10;
+  const data = await compiler.compileImageTargets([img], (p) => { if (p - last >= 10){ last = p; log(`compiling ${p.toFixed(0)}%`); } });
+  const t = data[0];
+  log(`detection points: ${t.matchingData.reduce((n, l) => n + l.maximaPoints.length + l.minimaPoints.length, 0)} over ${t.matchingData.length} scales; tracking points: ${t.trackingData.reduce((n, l) => n + l.points.length, 0)}`);
+  const buf = await compiler.exportData();
+  const res = await fetch('/__save?name=targets.mind', { method: 'POST', body: new Blob([buf]) });
+  log(`targets.mind: ${res.ok ? 'saved' : 'save failed'}`);
+  window.__done = true;
+}
+
+document.getElementById('draw').onclick = draw;
+document.getElementById('compile').onclick = compile;
+if (new URLSearchParams(location.search).has('build')) draw().then(compile).catch((e) => { log('ERROR ' + e); window.__done = 'error'; });
+</script>
+</body></html>
