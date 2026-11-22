@@ -6,7 +6,7 @@
   --safe-b:env(safe-area-inset-bottom,0px);
   --safe-l:env(safe-area-inset-left,0px);
   --safe-r:env(safe-area-inset-right,0px);
-  --ui:'Urbanist',ui-rounded,system-ui,-apple-system,'Segoe UI',sans-serif;
+  --ui:'Zen Maru Gothic',ui-rounded,system-ui,-apple-system,'Segoe UI',sans-serif;
   --glass:rgba(246,237,219,.94);
 }
 .iso[data-theme="sepia"]{--anatomy-weight:1px}

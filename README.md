@@ -79,4 +79,4 @@ Scan to Explore hub's `targets.mind` must be rebuilt too, since it recognises th
 - `js/stage.js` runs the three modes (picture scan then floating, WebXR room, preview), drag, pinch and tap picking, and the tray pictures
 - `js/app.js` runs the screens and the UI; `js/data.js` holds the part names and lines; `js/look.js` is the shared lighting
 - `css/anatomy-sepia.css` and `vendor/anatomy/iso.css` are the Anatomy design tokens; `css/app.css` is the UI
-- mind-ar 1.2.5 and three 0.160.0 are pinned to match the other NomAR apps
+- Font: Zen Maru Gothic, as in the other NomAR apps; mind-ar 1.2.5 and three 0.160.0 are pinned to match them too
