@@ -5,7 +5,7 @@
 // steady in front of you; on Android, Start sets it down on a table with room
 // tracking (WebXR) so you can walk round it.
 //
-// ?from=hub   opened by the Scan to Explore hub: a ✕ on the first screens goes back to it
+// Every ✕ goes back to the Scan to Explore scanning page, the hub this experience is linked under.
 // ?demo=1     the hub has already recognised the picture, so the scan is skipped
 //             (no button for this on screen)
 // ?preview=1  development only: no camera, a lit backdrop
@@ -45,7 +45,7 @@ try {
 $('introSushi').src = thumbs.whole || '';
 buildTray();
 S.xr = q.get('card') !== '1' && await Stage.xrSupported();
-if (S.xr) $('stepMove').innerHTML = '<b>Walk round</b> it, or <b>drag</b> to turn it';
+if (S.xr) $('stepMove').innerHTML = '<u>Turn:</u> walk round it';
 $('permBtn').disabled = false;
 $('permStatus').textContent = '';
 
@@ -106,9 +106,11 @@ async function openScan(){
 // found: the sushi is already floating over the camera; the instructions come up over it
 function onFound(){
   if (S.phase !== 'scan') return;
+  S.phase = 'found';
   overlay('guide', false);
   buzz(40);
-  openIntro();
+  overlay('found', true);
+  setTimeout(() => { overlay('found', false); openIntro(); }, 1300);
 }
 
 // ------------------------------------------------------------ 2 · instructions → Start
@@ -126,7 +128,7 @@ function start(){
     Stage.startXR().then(() => enter('xr')).catch((err) => {
       console.error(err);
       S.xr = false;
-      $('stepMove').innerHTML = '<b>Drag</b> to turn it any way';
+      $('stepMove').innerHTML = '<u>Turn:</u> drag one finger';
       $('camStatus').textContent = 'Room tracking did not start here. The sushi will float over the camera instead.';
       Stage.startFloat().then(() => { $('goBtn').disabled = false; }).catch((e) => { $('goBtn').disabled = false; $('camStatus').textContent = 'The camera did not start. Close other apps that use the camera and try again.'; console.error(e); });
     });
@@ -190,7 +192,7 @@ function buildTray(){
 function setApart(on, quiet = false){
   Stage.setExploded(on);
   $('explodeBtn').classList.toggle('apart', on);
-  $('explodeLabel').textContent = on ? 'Put it back together' : 'Take it apart';
+  $('explodeBtn').textContent = on ? 'Put it back together' : 'Take it apart';
   if (!on){ S.part = null; setCard(null); markTray(null); }
   if (!quiet) buzz(on ? 35 : 20);
   setHint();
@@ -263,20 +265,17 @@ function band(){
   return bandCache;
 }
 
-// ✕: back to the instructions (the picture is not asked for again)
+// leaving the sushi view (the room-tracking session ended)
 function leaveView(){
   clearInterval(S.hintTimer);
   setApart(false, true);
   overlay('hud', false);
   document.body.classList.remove('preview', 'mode-xr', 'mode-float', 'placing');
 }
-function back(){
-  if (S.phase !== 'view') return;
-  const wasXR = S.mode === 'xr';
-  leaveView();
-  S.mode = null;
-  if (wasXR) Stage.stop(); // ends the session; Start opens it again
-  openIntro();
+// ✕: back to the Scan to Explore scanning page
+function toHub(){
+  try { Stage.stop(); } catch { /* fine */ }
+  location.href = HUB;
 }
 
 // ------------------------------------------------------------ wiring
@@ -284,13 +283,9 @@ $('permBtn').addEventListener('click', askCamera);
 $('scanRetry').addEventListener('click', openScan);
 $('goBtn').addEventListener('click', start);
 $('explodeBtn').addEventListener('click', () => setApart(!Stage.isExploded()));
-$('closeBtn').addEventListener('click', back);
+$('closeBtn').addEventListener('click', toHub);
+$('hubBack').addEventListener('click', toHub);
 $('errBtn').addEventListener('click', () => location.reload());
-if (q.get('from') === 'hub'){
-  document.body.classList.add('from-hub');
-  $('hubBack').hidden = false;
-  $('hubBack').addEventListener('click', () => { try { Stage.stop(); } catch { /* fine */ } location.href = HUB; });
-}
 addEventListener('keydown', (e) => {
   if (S.phase !== 'view') return;
   if (e.key === ' ' || e.key === 'Enter'){ if (document.activeElement === document.body){ e.preventDefault(); setApart(!Stage.isExploded()); } }

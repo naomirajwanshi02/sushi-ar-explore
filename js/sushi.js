@@ -1,12 +1,12 @@
-// Three pieces of nigiri on a cypress serving board, built procedurally in
-// centimetres (y up, the board's feet at y = 0), after the trigger painting:
-// a sweet omelette tied on with a nori belt, lean tuna, and salmon topped with roe.
+// Three kinds of sushi on a cypress serving board, built procedurally in
+// centimetres (y up, the board's feet at y = 0): a roll (seaweed outside, rice,
+// then salmon, cucumber and avocado in the middle), a tuna nigiri, and a salmon
+// nigiri topped with salmon roe.
 //
 // Every part is built twice: where it sits on the board (A) and where it floats in
-// the exploded view (B). Each piece of nigiri comes apart as a column, layer by
-// layer, the way it was built: rice, wasabi (or the nori belt), the topping, and
-// the roe on top of the salmon. Rigid parts move as a whole; the roe pearls and
-// the rice grains are instanced.
+// the exploded view (B). Each piece comes apart as a column, layer by layer, the
+// way it was made. Rigid parts move as a whole; the roe pearls and the rice grains
+// are instanced.
 
 import * as THREE from 'three';
 import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
@@ -25,7 +25,8 @@ export const TOP_Y = BOARD.footH + BOARD.h;            // the board's top surfac
 const RICE = { rx: 1.3, rz: 3.0, h: 2.0, cut: -0.5 };  // a hand-pressed oval mound
 RICE.ry = RICE.h / (1 - RICE.cut);
 const FISH = { w: 2.9, t: 0.6, d: 7.0 };
-const EGG = { w: 3.0, h: 1.6, d: 6.8 };
+// a roll piece: about 4.5 cm across and 2.7 cm tall, seaweed outside, a ring of rice, fillings in the middle
+const MAKI = { r: 2.25, h: 2.7, nori: 0.07, inner: 1.05 };
 
 // ------------------------------------------------------------------ helpers
 // A box with rounded edges that stays evenly subdivided, so it can be bent.
@@ -58,9 +59,25 @@ function roundedSlab(w, h, d, r, sx, sy, sz, { merge = true, along = 'x' } = {})
 
 // the rice mound: a squashed sphere, a little boxy like a hand-pressed bed, with a flat base
 const boxy = (yu) => 1 + 0.16 * (1 - Math.abs(yu));
-function riceHalfWidth(y){ // half-width of the mound's middle cross-section at height y
-  const yu = clamp(y / RICE.ry + RICE.cut, RICE.cut, 1);
-  return Math.sqrt(Math.max(0, 1 - yu * yu)) * boxy(yu) * RICE.rx;
+
+// A ring with thickness and rounded rims (a profile spun round the y axis), centred on y = 0.
+function roundedRing(rIn, rOut, h, r, segs = 72){
+  const pts = [], n = 6;
+  const corner = (cx, cy, a0) => {
+    for (let i = 0; i <= n; i++){ const a = a0 + (i / n) * Math.PI / 2; pts.push(new THREE.Vector2(cx + Math.cos(a) * r, cy + Math.sin(a) * r)); }
+  };
+  corner(rIn + r, -h / 2 + r, Math.PI);
+  corner(rOut - r, -h / 2 + r, -Math.PI / 2);
+  corner(rOut - r, h / 2 - r, 0);
+  corner(rIn + r, h / 2 - r, Math.PI / 2);
+  pts.push(pts[0].clone());
+  return new THREE.LatheGeometry(pts, segs);
+}
+function vertexColours(g, fn){
+  const p = g.attributes.position, col = new Float32Array(p.count * 3), c = new THREE.Color();
+  for (let i = 0; i < p.count; i++){ fn(c, p.getX(i), p.getY(i), p.getZ(i)); c.toArray(col, i * 3); }
+  g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  return g;
 }
 
 // ------------------------------------------------------------------ materials
@@ -75,10 +92,12 @@ function mats(){
   M.salmon = new THREE.MeshPhysicalMaterial({ map: TX.salmonTexture(), roughness: 0.36, clearcoat: 0.65, clearcoatRoughness: 0.25, envMapIntensity: 0.55, sheen: 0.25, sheenColor: new THREE.Color('#ffc09a') });
   M.roe = new THREE.MeshPhysicalMaterial({ color: '#f0441c', roughness: 0.06, clearcoat: 1, clearcoatRoughness: 0.04, transparent: true, opacity: 0.9, emissive: '#7a1400', emissiveIntensity: 0.35, ior: 1.4, envMapIntensity: 0.9 });
   M.yolk = new THREE.MeshStandardMaterial({ color: '#ff8a2a', roughness: 0.3, emissive: '#a33a00', emissiveIntensity: 0.4 });
-  const side = TX.omeletteTexture(), top = TX.omeletteTopTexture();
-  M.eggSide = new THREE.MeshPhysicalMaterial({ map: side, roughness: 0.5, clearcoat: 0.25, clearcoatRoughness: 0.4, envMapIntensity: 0.45, sheen: 0.3, sheenColor: new THREE.Color('#fff0b0') });
-  M.eggTop = new THREE.MeshPhysicalMaterial({ map: top, roughness: 0.5, clearcoat: 0.3, clearcoatRoughness: 0.4, envMapIntensity: 0.45, sheen: 0.3, sheenColor: new THREE.Color('#fff0b0') });
-  const nt = TX.noriTexture(); nt.repeat.set(2, 0.4);
+  M.salmonStrip = new THREE.MeshPhysicalMaterial({ map: TX.salmonTexture(21), roughness: 0.36, clearcoat: 0.6, clearcoatRoughness: 0.25, envMapIntensity: 0.55 });
+  M.cucumber = new THREE.MeshPhysicalMaterial({ vertexColors: true, roughness: 0.35, clearcoat: 0.5, clearcoatRoughness: 0.3, envMapIntensity: 0.5 });
+  M.avocado = new THREE.MeshPhysicalMaterial({ vertexColors: true, roughness: 0.4, clearcoat: 0.35, clearcoatRoughness: 0.3, envMapIntensity: 0.5 });
+  const rr = TX.riceTexture(23); rr.repeat.set(6, 1);
+  M.riceRing = new THREE.MeshStandardMaterial({ map: rr, roughness: 0.74, envMapIntensity: 0.45, side: THREE.DoubleSide });
+  const nt = TX.noriTexture(); nt.repeat.set(5, 1);
   M.nori = new THREE.MeshStandardMaterial({ map: nt, roughness: 0.6, metalness: 0, side: THREE.DoubleSide, envMapIntensity: 0.55 });
   M.wasabi = new THREE.MeshStandardMaterial({ color: '#8eab3d', roughness: 0.82, envMapIntensity: 0.4 });
   return M;
@@ -147,20 +166,53 @@ function buildFish(mat, droop = 0.95){
   return g;
 }
 
-// the rolled omelette: a block of thin layers, browned on top, slightly arched
-function buildOmelette(M){
-  const { w, h, d } = EGG;
-  const geo = roundedSlab(w, h, d, 0.28, 12, 8, 30, { merge: false });
-  const p = geo.attributes.position;
-  for (let i = 0; i < p.count; i++){
-    const x = p.getX(i), y = p.getY(i), z = p.getZ(i);
-    const u = z / (d / 2), top = (y + h / 2) / h;
-    p.setXYZ(i, x, y - 0.35 * u * u + 0.1 * top * (1 - (x / (w / 2)) ** 2), z);
+// ------------------------------------------------------------------ the roll
+// the seaweed wrapper: a thin tube round the outside
+function buildWrapper(M){
+  const mesh = new THREE.Mesh(roundedRing(MAKI.r - MAKI.nori, MAKI.r, MAKI.h, 0.025), M.nori);
+  mesh.position.y = MAKI.h / 2;
+  const g = new THREE.Group(); g.add(mesh);
+  return g;
+}
+// the ring of rice inside it, with loose grains on the cut faces
+function buildRiceRing(M, rand){
+  const g = new THREE.Group();
+  const rOut = MAKI.r - MAKI.nori, h = MAKI.h - 0.05;
+  const ring = new THREE.Mesh(roundedRing(MAKI.inner, rOut, h, 0.22), M.riceRing);
+  ring.position.y = MAKI.h / 2;
+  g.add(ring);
+  const n = 380;
+  const grains = new THREE.InstancedMesh(new THREE.SphereGeometry(1, 8, 5), M.grain, n);
+  const m = new THREE.Matrix4(), q = new THREE.Quaternion(), spin = new THREE.Quaternion(), s = V(), pt = V(), nrm = V(), up = V(0, 1, 0);
+  for (let i = 0; i < n; i++){
+    const top = i % 2 === 0, a = rand() * Math.PI * 2;
+    const r = Math.sqrt(MAKI.inner ** 2 + 0.25 + rand() * ((rOut - 0.12) ** 2 - MAKI.inner ** 2 - 0.25));
+    pt.set(Math.cos(a) * r, top ? MAKI.h / 2 + h / 2 - 0.02 : MAKI.h / 2 - h / 2 + 0.02, Math.sin(a) * r);
+    nrm.set((rand() - 0.5) * 0.6, top ? 1 : -1, (rand() - 0.5) * 0.6).normalize();
+    q.setFromUnitVectors(up, nrm).multiply(spin.setFromAxisAngle(up, rand() * Math.PI * 2));
+    s.set(0.24 + rand() * 0.05, 0.085 + rand() * 0.025, 0.11 + rand() * 0.03);
+    grains.setMatrixAt(i, m.compose(pt, q, s));
   }
-  geo.computeVertexNormals();
-  // BoxGeometry faces: +x, −x, +y (top), −y, +z, −z
-  const mesh = new THREE.Mesh(geo, [M.eggSide, M.eggSide, M.eggTop, M.eggSide, M.eggSide, M.eggSide]);
-  mesh.position.y = h / 2;
+  g.add(grains);
+  return g;
+}
+// one filling: a baton standing up through the middle of the roll
+function buildBaton(M, kind){
+  const size = { salmon: 0.78, cucumber: 0.62, avocado: 0.72 }[kind];
+  const h = MAKI.h - 0.12;
+  const geo = roundedSlab(size, h, size, 0.12, 4, 8, 4);
+  let mat = M.salmonStrip;
+  if (kind === 'cucumber'){
+    // dark green skin on one side, pale crisp flesh
+    vertexColours(geo, (c, x) => c.set(x > size * 0.32 ? '#2f5a22' : x > size * 0.18 ? '#6f9a45' : '#d8e9b2'));
+    mat = M.cucumber;
+  } else if (kind === 'avocado'){
+    // pale yellow-green, deepening to green toward where the skin was
+    vertexColours(geo, (c, x) => c.set('#e5e79c').lerp(new THREE.Color('#7fa43a'), THREE.MathUtils.smoothstep(x / size + 0.5, 0.45, 1)));
+    mat = M.avocado;
+  }
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.position.y = h / 2 + 0.06;
   const g = new THREE.Group(); g.add(mesh);
   return g;
 }
@@ -177,39 +229,6 @@ function buildWasabi(M, rand){
   geo.computeVertexNormals();
   const mesh = new THREE.Mesh(geo, M.wasabi);
   const g = new THREE.Group(); g.add(mesh);
-  return g;
-}
-
-// the nori belt: a strip of seaweed around the omelette and the rice, across the middle
-function buildBelt(M){
-  const width = 1.1, gap = 0.04;
-  const top = RICE.h + EGG.h + gap, half = EGG.w / 2 + gap, cr = 0.4;
-  // one side of the loop, from the middle of the underside up to the middle of the top
-  const side = [];
-  const flat = riceHalfWidth(0) * 0.92;
-  for (let i = 0; i <= 6; i++) side.push([flat * i / 6, -0.06]);
-  // over the rice it stands off a little more, clear of the loose grains on the surface
-  for (let i = 1; i <= 16; i++){ const y = RICE.h * i / 16; side.push([riceHalfWidth(y) + 0.16, y]); }
-  side.push([half, RICE.h + 0.05]);
-  for (let i = 0; i <= 8; i++){ const a = (i / 8) * Math.PI / 2; side.push([half - cr + Math.cos(a) * cr, top - cr + Math.sin(a) * cr]); }
-  for (let i = 1; i <= 6; i++) side.push([(half - cr) * (1 - i / 6), top]);
-  const loop = [...side.map(([x, y]) => V(x, y, 0)), ...side.slice(1, -1).reverse().map(([x, y]) => V(-x, y, 0))];
-  const curve = new THREE.CatmullRomCurve3(loop, true, 'centripetal');
-  const pts = curve.getSpacedPoints(160);
-  const n = pts.length - 1;
-  const pos = [], uv = [], idx = [];
-  let len = 0;
-  for (let i = 0; i <= n; i++){
-    if (i) len += pts[i].distanceTo(pts[i - 1]);
-    for (const s of [-1, 1]){ pos.push(pts[i].x, pts[i].y, s * width / 2); uv.push(len / 3, (s + 1) / 2); }
-  }
-  for (let i = 0; i < n; i++){ const a = i * 2; idx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3); }
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-  geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
-  geo.setIndex(idx);
-  geo.computeVertexNormals();
-  const g = new THREE.Group(); g.add(new THREE.Mesh(geo, M.nori));
   return g;
 }
 
@@ -231,17 +250,17 @@ export function buildSushi(){
   };
   const addRigid = (pt, obj, A, B) => { pt.root.add(obj); rigid.push({ pt, obj, A, B }); };
 
-  // where each piece sits on the board: long side across, in a row from front-left to
-  // back-right like the painting (local x across a piece, local z along it)
+  // where each piece sits on the board: the roll at the front left, then the two nigiri,
+  // long side across, in a row toward the back right (local x across a piece, local z along it)
   const YAW = Math.PI / 2 + 0.12;
   const N = {
-    egg: { p: V(-4.4, TOP_Y, 3.2), yaw: YAW },
+    maki: { p: V(-5.8, TOP_Y, 2.8), yaw: YAW },
     tuna: { p: V(0, TOP_Y, 0), yaw: YAW },
     salmon: { p: V(4.4, TOP_Y, -3.2), yaw: YAW },
   };
   // apart: three columns side by side over the board
   const E = {
-    egg: { p: V(-7.8, TOP_Y, 1.0), yaw: Math.PI / 2 },
+    maki: { p: V(-7.8, TOP_Y, 1.0), yaw: Math.PI / 2 },
     tuna: { p: V(0, TOP_Y, 0), yaw: Math.PI / 2 },
     salmon: { p: V(7.8, TOP_Y, -1.0), yaw: Math.PI / 2 },
   };
@@ -259,41 +278,51 @@ export function buildSushi(){
   board.root.add(buildBoard(M));
   board.pin.set(0, TOP_Y, 0);
 
-  // 2 · rice: three hand-pressed beds, lifting off the board
+  // 2 · rice: the roll's ring and two hand-pressed beds, lifting off the board
   const rice = part('rice', 0.02);
-  for (const k of ['egg', 'tuna', 'salmon']){
-    if (k === 'tuna') rice.thumb = rice.root.children.length; // the tray shows one bed
+  addRigid(rice, buildRiceRing(M, rand), at(N.maki, V()), at(E.maki, V(), Q(0, 0, 0.85), UP.rice + 0.6));
+  for (const k of ['tuna', 'salmon']){
+    if (k === 'tuna') rice.thumb = rice.root.children.length; // the tray shows one nigiri bed
     addRigid(rice, buildRice(M, rand), at(N[k], V()), at(E[k], V(), Q(0, 0, 0.12), UP.rice));
   }
   rice.pin.copy(pinAt('tuna', UP.rice + 1));
 
-  // 3 · wasabi: a dab on the rice under the tuna and the salmon
-  const wasabi = part('wasabi', 0.1);
+  // 3 · the seaweed wrapper round the roll
+  const nori = part('nori', 0.1);
+  addRigid(nori, buildWrapper(M), at(N.maki, V()), at(E.maki, V(), Q(0, 0, 0.85), UP.mid + 0.6));
+  nori.pin.copy(pinAt('maki', UP.mid + 1.8));
+
+  // 4 · wasabi: a dab on the rice under the tuna and the salmon
+  const wasabi = part('wasabi', 0.12);
   wasabi.thumb = 0;
   for (const k of ['tuna', 'salmon']){
     addRigid(wasabi, buildWasabi(M, rand), at(N[k], V(0, RICE.h - 0.14, 0)), at(E[k], V(), SHOW, UP.mid + 0.6));
   }
   wasabi.pin.copy(pinAt('tuna', UP.mid + 0.8)).lerp(pinAt('salmon', UP.mid + 0.8), 0.5);
 
-  // 4 · the nori belt around the omelette and its rice
-  const nori = part('nori', 0.12);
-  // apart it turns to face you, so you see the loop it makes
-  addRigid(nori, buildBelt(M), at(N.egg, V()), at(E.egg, V(), Q(0.2, -1.25, 0), UP.mid - 1.4));
-  nori.pin.copy(pinAt('egg', UP.mid + 1.5));
-
-  // 5 · the sweet rolled omelette
-  const omelette = part('omelette', 0.2);
-  addRigid(omelette, buildOmelette(M), at(N.egg, V(0, RICE.h - 0.05, 0)), at(E.egg, V(), SHOW, UP.top + 0.4));
-  omelette.pin.copy(pinAt('egg', UP.top + 0.8));
+  // 5 · the roll's fillings: three batons standing through the middle, side by side when apart
+  const filling = { salmon: [0.08, 0.42, 0], cucumber: [-0.4, -0.18, -1.35], avocado: [0.36, -0.28, 1.35] };
+  const batons = {};
+  for (const [kind, [x, z, apartZ]] of Object.entries(filling)){
+    batons[kind] = [buildBaton(M, kind), at(N.maki, V(x, 0.03, z), Q(0, 0.3, 0)), at(E.maki, V(0, 0, apartZ), SHOW, UP.top + 0.4)];
+  }
+  const cucumber = part('cucumber', 0.2);
+  addRigid(cucumber, ...batons.cucumber);
+  cucumber.pin.copy(pinAt('maki', UP.top + 0.8)).add(V(-1.35, 0, 0));
+  const avocado = part('avocado', 0.22);
+  addRigid(avocado, ...batons.avocado);
+  avocado.pin.copy(pinAt('maki', UP.top + 0.8)).add(V(1.35, 0, 0));
 
   // 6 · lean tuna
   const tuna = part('tuna', 0.24);
   addRigid(tuna, buildFish(M.tuna, 1.0), at(N.tuna, V(0, fishY, 0)), at(E.tuna, V(), SHOW, UP.top + 0.6));
   tuna.pin.copy(pinAt('tuna', UP.top + 1));
 
-  // 7 · salmon
+  // 7 · salmon: the nigiri slice, and the baton in the middle of the roll
   const salmon = part('salmon', 0.28);
+  salmon.thumb = 0;
   addRigid(salmon, buildFish(M.salmon, 0.9), at(N.salmon, V(0, fishY, 0)), at(E.salmon, V(), SHOW, UP.top + 0.6));
+  addRigid(salmon, ...batons.salmon);
   salmon.pin.copy(pinAt('salmon', UP.top + 1));
 
   // 8 · salmon roe: a little heap of pearls on the salmon; a loose ring of pearls when apart

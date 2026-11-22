@@ -504,7 +504,10 @@ function thumbnails(){
     return tr.domElement.toDataURL('image/png');
   };
   R.sushi.setExplode(0);
-  out.whole = shoot(0.62, 0, 0.62);
+  // the picture on the instructions is wide and sharp; the tray pictures are small squares
+  tr.setSize(720, 420); cam.aspect = 720 / 420; cam.updateProjectionMatrix();
+  out.whole = shoot(0.62, 0, 0.5);
+  tr.setSize(S, S); cam.aspect = 1; cam.updateProjectionMatrix();
   R.sushi.setExplode(1);
   for (const id in parts){
     for (const k in parts) parts[k].root.visible = k === id;

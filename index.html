@@ -28,46 +28,51 @@
 </head>
 <body class="iso ar" data-theme="sepia">
 
-<!-- camera + 3D -->
+<!-- the live camera: the only background (the sushi is drawn over it) -->
 <div id="ar"></div>
 
 <!-- ============ 0 · CAMERA PERMISSION ============ -->
 <section id="perm" class="screen dim">
   <div class="col center">
     <div class="plate welcome">
-      <div class="permicon" aria-hidden="true"><svg viewBox="0 0 48 48" width="60" height="60"><rect x="5" y="13" width="38" height="27" rx="5" fill="none" stroke="currentColor" stroke-width="3"/><path d="M17 13l3-5h8l3 5" fill="none" stroke="currentColor" stroke-width="3" stroke-linejoin="round"/><circle cx="24" cy="26.5" r="7.5" fill="none" stroke="currentColor" stroke-width="3"/></svg></div>
+      <div class="permicon" aria-hidden="true"><svg viewBox="0 0 48 48" width="56" height="56"><rect x="5" y="13" width="38" height="27" rx="5" fill="none" stroke="currentColor" stroke-width="3"/><path d="M17 13l3-5h8l3 5" fill="none" stroke="currentColor" stroke-width="3" stroke-linejoin="round"/><circle cx="24" cy="26.5" r="7.5" fill="none" stroke="currentColor" stroke-width="3"/></svg></div>
       <h1>Allow camera access</h1>
       <p>This page needs your camera. Tap the button, then choose <b>Allow</b>.</p>
-      <p>The video stays on this phone. Nothing is recorded or sent anywhere.</p>
       <button class="btn red" id="permBtn" disabled>Allow camera</button>
       <div class="status dark" id="permStatus">Making the sushi…</div>
     </div>
   </div>
 </section>
 
-<!-- ============ 1 · VIEWFINDER: find the picture ============ -->
+<!-- ============ 1 · VIEWFINDER: find the sushi picture ============ -->
 <div id="guide" class="overlay">
-  <div class="scan-top plate"><b>Point your camera at the sushi picture</b><span>The sushi appears as soon as it's found</span></div>
+  <div class="scan-top plate"><b>Point your camera at the sushi picture</b><span class="sub">The sushi appears as soon as it is found</span></div>
   <div class="frame"><i></i><i></i><i></i><i></i><div class="sweep"></div></div>
   <div class="scan-bottom">
     <div class="status" id="scanStatus">Starting camera…</div>
-    <div class="row"><button class="btn ghost small" id="scanRetry" hidden>Try again</button></div>
+    <div class="row">
+      <button class="btn ghost small" id="scanRetry" hidden>Try again</button>
+      <a class="btn ghost small" href="sushi_main.jpeg" target="_blank" rel="noopener">Get the picture</a>
+    </div>
   </div>
 </div>
+
+<div id="found" class="overlay"><div class="plate badge"><div class="stamp">✓</div><b>Found it!</b><span>Three kinds of sushi</span></div></div>
 
 <!-- ============ 2 · INSTRUCTIONS ============ -->
 <section id="intro" class="screen dim">
   <div class="col center">
     <div class="plate welcome">
-      <div class="hero-wrap"><img class="hero-sushi" id="introSushi" alt=""></div>
-      <h1>Take apart three pieces of sushi!</h1>
-      <p>Each <b>nigiri</b> is a small bed of seasoned rice, pressed by hand, with a topping on it. Some hide a dab of wasabi, and the omelette is tied on with seaweed.</p>
+      <img class="hero" id="introSushi" alt="">
+      <h1>Take apart three kinds of sushi!</h1>
+      <p>A <b>roll</b>, a <b>tuna nigiri</b> and a <b>salmon nigiri</b> topped with roe will appear in front of you in 3D. They are not tied to the picture, so you can look at them from anywhere.</p>
       <ol class="steps">
-        <li><b>1</b><span><b>Tap the sushi</b> to take it apart</span></li>
-        <li><b>2</b><span>Tap any <b>piece</b> to learn about it</span></li>
-        <li><b>3</b><span><b>Pinch</b> to zoom in and out</span></li>
-        <li><b>4</b><span id="stepMove"><b>Drag</b> to turn it any way</span></li>
+        <li><b>1</b><span><u>Open:</u> tap the sushi</span></li>
+        <li><b>2</b><span><u>Learn:</u> tap a piece</span></li>
+        <li><b>3</b><span id="stepMove"><u>Turn:</u> drag one finger</span></li>
+        <li><b>4</b><span><u>Zoom:</u> pinch two fingers</span></li>
       </ol>
+      <p>Keep your <b>camera on</b>: the sushi sits over the live view around you. The video stays on this phone and nothing is recorded or sent anywhere.</p>
       <button class="btn red" id="goBtn">Start</button>
       <div class="status dark" id="camStatus"></div>
     </div>
@@ -78,27 +83,27 @@
 <div id="hud" class="overlay">
   <div class="hud-top">
     <div class="hud-left">
-      <div class="plate namecard" id="namecard">
-        <div class="nc-main"><b id="ncName">Three pieces of nigiri</b></div>
-        <div class="nc-blurb" id="ncBlurb"></div>
+      <div class="plate namecard" id="namecard" aria-live="polite">
+        <h2 id="ncName">Three kinds of sushi</h2>
+        <p id="ncBlurb"></p>
       </div>
-      <div class="hint" id="hint" role="status" aria-live="polite"></div>
+      <div class="hint" id="hint" role="status"></div>
     </div>
     <div class="iconcol">
-      <button class="iconbtn" id="closeBtn" aria-label="Back to the start"><svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/></svg></button>
+      <button class="iconbtn" id="closeBtn" aria-label="Back to scanning"><svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/></svg></button>
     </div>
   </div>
 
   <div class="hud-bottom">
     <div class="actions">
-      <button class="btn red explode" id="explodeBtn"><svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path d="M12 3v5M12 16v5M3 12h5M16 12h5M5.6 5.6l3 3M15.4 15.4l3 3M18.4 5.6l-3 3M8.6 15.4l-3 3" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg><span id="explodeLabel">Take it apart</span></button>
+      <button class="btn red explode" id="explodeBtn">Take it apart</button>
     </div>
     <div class="tray plate" id="tray" role="listbox" aria-label="Parts of the sushi"></div>
   </div>
 </div>
 
-<!-- ✕ back to the Scan to Explore hub (only when opened from it) -->
-<button class="iconbtn hubback" id="hubBack" aria-label="Back to scanning" hidden><svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/></svg></button>
+<!-- ✕ back to the Scan to Explore scanning page, on the screens before the sushi -->
+<button class="iconbtn hubback" id="hubBack" aria-label="Back to scanning"><svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/></svg></button>
 
 <div class="plate toast" id="toast"></div>
 <div class="plate errbox" id="err" hidden><b>Something went wrong</b><pre id="errText"></pre><button class="btn small" id="errBtn">Start over</button></div>

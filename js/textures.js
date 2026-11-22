@@ -1,5 +1,5 @@
 // Painted canvas textures for the sushi: the cypress serving board, rice, lean
-// tuna, salmon, the layered omelette and nori. Everything is drawn once at load,
+// tuna, salmon and nori. Everything is drawn once at load,
 // procedurally, so the app ships no image files for the models.
 
 import * as THREE from 'three';
@@ -115,46 +115,6 @@ export function salmonTexture(seed = 13){
     g.beginPath(); g.moveTo(x0, -10); g.bezierCurveTo(x0 + 70, H * 0.3, x0 + 30, H * 0.7, x0 + 110, H + 10); g.stroke();
     g.strokeStyle = 'rgba(255,240,226,0.35)'; g.lineWidth = 2;
     g.beginPath(); g.moveTo(x0 + 22, -10); g.bezierCurveTo(x0 + 92, H * 0.3, x0 + 52, H * 0.7, x0 + 132, H + 10); g.stroke();
-  }
-  return tex(c);
-}
-
-// ------------------------------------------------------------------ rolled omelette
-// v runs from the bottom (0) to the top (1) of the block: thin cooked layers, each
-// with a faint golden seam, and a browned top; u adds soft streaks along the block.
-export function omeletteTexture(seed = 17){
-  const W = 512, H = 512;
-  const [c, g] = canvas(W, H);
-  const rand = rng(seed);
-  const layers = 7;
-  for (let i = 0; i < layers; i++){
-    const y0 = H - (i + 1) * H / layers, h = H / layers;
-    g.fillStyle = `hsl(${44 + rand() * 4}, ${86 + rand() * 8}%, ${66 + rand() * 6}%)`;
-    g.fillRect(0, y0, W, h + 1);
-    g.fillStyle = 'rgba(214,140,40,0.55)';
-    g.fillRect(0, y0, W, 3 + rand() * 2);   // the seam where two layers were rolled together
-  }
-  // browned top and bottom where they touched the pan
-  const top = g.createLinearGradient(0, 0, 0, H * 0.16);
-  top.addColorStop(0, 'rgba(214,128,34,0.85)'); top.addColorStop(1, 'rgba(214,128,34,0)');
-  g.fillStyle = top; g.fillRect(0, 0, W, H * 0.16);
-  const bot = g.createLinearGradient(0, H, 0, H * 0.9);
-  bot.addColorStop(0, 'rgba(214,140,40,0.5)'); bot.addColorStop(1, 'rgba(214,140,40,0)');
-  g.fillStyle = bot; g.fillRect(0, H * 0.9, W, H * 0.1);
-  speckle(g, W, H, 300, ['#f8d36a', '#f2b544'], 3, 14, 0.3, rand);
-  return tex(c);
-}
-// the browned top of the omelette, seen from above: golden with the orange swirl lines of the painting
-export function omeletteTopTexture(seed = 19){
-  const W = 512, H = 1024;
-  const [c, g] = canvas(W, H);
-  const rand = rng(seed);
-  g.fillStyle = '#f6c552'; g.fillRect(0, 0, W, H);
-  speckle(g, W, H, 500, ['#f2b23c', '#f9d777', '#eaa230'], 10, 40, 0.35, rand);
-  for (let i = 0; i < 9; i++){
-    g.strokeStyle = `rgba(228,128,34,${0.45 + rand() * 0.3})`; g.lineWidth = 5 + rand() * 5; g.lineCap = 'round';
-    const x = 60 + rand() * (W - 120), y = 80 + rand() * (H - 160);
-    g.beginPath(); g.moveTo(x - 90, y + 20); g.quadraticCurveTo(x, y - 40 - rand() * 30, x + 90, y + 10); g.stroke();
   }
   return tex(c);
 }

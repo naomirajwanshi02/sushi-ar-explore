@@ -1,5 +1,5 @@
 // Lighting shared by the AR view, the preview and the tools: filmic tone mapping,
-// a soft studio environment for the fish and the omelette to reflect, a key light from
+// a soft studio environment for the fish and the rice to reflect, a key light from
 // above the camera and a fill. In AR the light follows the room: the camera image
 // is sampled twice a second and its brightness and tint drive exposure and fill.
 
