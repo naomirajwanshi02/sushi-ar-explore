@@ -47,6 +47,7 @@ export function init(container, cb){
   R.look = setupLook(renderer, scene);
 
   R.sushi = buildSushi();
+  ownMaterials();
   R.anchor = new THREE.Group(); R.spin = new THREE.Group(); R.tilt = new THREE.Group(); R.fit = new THREE.Group();
   scene.add(R.anchor); R.anchor.add(R.spin); R.spin.add(R.tilt); R.tilt.add(R.fit); R.fit.add(R.sushi.model);
   R.anchor.position.set(0, 0, -DIST);
@@ -214,7 +215,13 @@ function freeFromPicture(){
 
 // Camera without the scanner: when room tracking fails after the scan, or when the hub
 // has already recognised the picture (?demo=1). The sushi floats over a plain camera feed.
-export async function startFloat(){
+// one camera request at a time (Start can be tapped while the camera is still coming on)
+let floatStarting = null;
+export function startFloat(){
+  if (!floatStarting) floatStarting = startFloatNow().finally(() => { floatStarting = null; });
+  return floatStarting;
+}
+async function startFloatNow(){
   if (R.mode === 'float') return;
   stop();
   const stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } } });
@@ -344,6 +351,53 @@ function frame(now, xrFrame){
   draw();
 }
 const _qt = new THREE.Quaternion();
+
+// ------------------------------------------------------------------ highlight (as in the Pagoda repo)
+// The picked part keeps its colour and glows softly; the rest fade toward paper.
+// Each part owns copies of its materials (sharing the textures) so it can fade on its own.
+const PAPER = new THREE.Color('#e9e1d2'), GLOW = new THREE.Color('#ffb070'), _paper = new THREE.Color();
+function ownMaterials(){
+  for (const id in R.sushi.parts){
+    const pt = R.sushi.parts[id], copies = new Map();
+    pt.root.traverse((o) => {
+      if (!o.material) return;
+      const own = (m) => {
+        if (!copies.has(m)){
+          const c = m.clone();
+          c.userData.color0 = c.color.clone();
+          c.userData.emissive0 = c.emissive ? c.emissive.clone().multiplyScalar(c.emissiveIntensity ?? 1) : null;
+          // textured and vertex-coloured materials carry their colour in the map, so the
+          // base colour alone hardly lightens them: they get a stronger paper wash
+          c.userData.wash = c.map || c.vertexColors ? 0.6 : 0.35;
+          copies.set(m, c);
+        }
+        return copies.get(m);
+      };
+      o.material = Array.isArray(o.material) ? o.material.map(own) : own(o.material);
+    });
+    pt.mats = [...copies.values()];
+    pt.fade = 0;
+  }
+}
+function highlight(dt, now){
+  const ease = 1 - Math.exp(-dt * 10), glow = 0.1 + 0.06 * Math.sin(now / 280);
+  for (const id in R.sushi.parts){
+    const pt = R.sushi.parts[id];
+    const f = R.selected && id !== R.selected ? 0.65 : 0;
+    pt.fade += (f - pt.fade) * ease;
+    if (Math.abs(f - pt.fade) < 1e-4) pt.fade = f;
+    const g = id === R.selected ? glow : 0;
+    if (pt.fade === 0 && g === 0 && !pt.lit) continue; // nothing to do while nothing is picked
+    pt.lit = pt.fade > 0 || g > 0;
+    for (const m of pt.mats){
+      m.color.copy(m.userData.color0).lerp(PAPER, pt.fade);
+      if (!m.emissive) continue;
+      _paper.copy(PAPER).multiplyScalar(m.userData.wash);
+      m.emissive.copy(m.userData.emissive0).lerp(_paper, pt.fade).lerp(GLOW, g);
+      m.emissiveIntensity = 1;
+    }
+  }
+}
 // Trackball: turn the sushi about the screen's up axis (ax) and right axis (ay), whatever
 // way it already faces, so every angle can be reached, upside down included.
 const _up = new THREE.Vector3(), _right = new THREE.Vector3(), _cq = new THREE.Quaternion(), _pq = new THREE.Quaternion(), _dq = new THREE.Quaternion();
@@ -372,6 +426,7 @@ function step(dt, now = performance.now()){
     const pt = R.sushi.parts[id];
     pt.focus += ((id === R.selected ? 1 : 0) - pt.focus) * (1 - Math.exp(-dt * 7));
   }
+  highlight(dt, now);
   R.sushi.setExplode(R.u);
   if (!R.drag.on) R.zoom += (R.zoomT - R.zoom) * (1 - Math.exp(-dt * 10));
 
@@ -504,10 +559,10 @@ function thumbnails(){
     return tr.domElement.toDataURL('image/png');
   };
   R.sushi.setExplode(0);
-  // the picture on the instructions is wide and sharp; the tray pictures are small squares
-  tr.setSize(720, 420); cam.aspect = 720 / 420; cam.updateProjectionMatrix();
-  out.whole = shoot(0.62, 0, 0.5);
-  tr.setSize(S, S); cam.aspect = 1; cam.updateProjectionMatrix();
+  // the picture on the instructions is drawn twice as big, so it stays sharp at 200 px
+  tr.setSize(S * 2, S * 2);
+  out.whole = shoot(0.62, 0, 0.62);
+  tr.setSize(S, S);
   R.sushi.setExplode(1);
   for (const id in parts){
     for (const k in parts) parts[k].root.visible = k === id;

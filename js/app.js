@@ -1,13 +1,10 @@
-// Anatomy of Sushi, in the same order as the other NomAR explorers:
+// Anatomy of Sushi, the same screens and flow as Ramen Anatomy:
 //   0 · allow the camera → 1 · scan the sushi picture (once) → 2 · instructions → Start
 //   → tap the sushi and it comes apart, layer by layer → tap a part for one line about it.
-// After the scan the picture is never needed again: the sushi floats over the camera,
-// steady in front of you; on Android, Start sets it down on a table with room
+// After the scan the picture is never needed again. On iPhone the sushi floats over the
+// camera, steady in front of you; on Android, Start sets it down on a table with room
 // tracking (WebXR) so you can walk round it.
 //
-// Every ✕ goes back to the Scan to Explore scanning page, the hub this experience is linked under.
-// ?demo=1     the hub has already recognised the picture, so the scan is skipped
-//             (no button for this on screen)
 // ?preview=1  development only: no camera, a lit backdrop
 // ?card=1     float over the camera even where room tracking works
 // ?apart=1    open already apart      ?part=<id>  open with that part picked
@@ -15,10 +12,13 @@
 import { PARTS, BY_ID, SUSHI_INFO } from './data.js';
 import * as Stage from './stage.js';
 
-const HUB = 'https://naomirajwanshi02.github.io/Scan_To_Explore/';
 const $ = (id) => document.getElementById(id);
 const q = new URLSearchParams(location.search);
 const S = { phase: 'perm', part: null, hintTimer: 0, xr: false, mode: null, placing: false, ringSeen: false };
+// Opened from the Scan to Explore hub (?from=hub): the hub has already recognised the sushi
+// picture, so this app skips its own scan, and every "back" cross returns to the hub's scanner.
+const HUB = 'https://naomirajwanshi02.github.io/Scan_To_Explore/';
+const FROM_HUB = q.get('from') === 'hub' || q.has('demo');
 
 const overlay = (id, on) => $(id).classList.toggle('on', on);
 const show = (id) => document.querySelectorAll('.screen').forEach((s) => s.classList.toggle('on', s.id === id));
@@ -37,7 +37,8 @@ function fail(err){
 
 // ------------------------------------------------------------ build the sushi (once)
 let thumbs = {};
-show('perm');
+// nothing is shown while the sushi is built: the camera page appears only if it is needed
+// (opened from the hub, or with the camera already allowed, it never flashes up)
 await new Promise((ok) => setTimeout(ok, 60)); // let the first plate paint
 try {
   thumbs = Stage.init($('ar'), { onTap, onEnd, onPlacing, onFound, band });
@@ -45,9 +46,7 @@ try {
 $('introSushi').src = thumbs.whole || '';
 buildTray();
 S.xr = q.get('card') !== '1' && await Stage.xrSupported();
-if (S.xr) $('stepMove').innerHTML = '<u>Turn:</u> walk round it';
-$('permBtn').disabled = false;
-$('permStatus').textContent = '';
+if (S.xr) $('stepMove').innerHTML = '<b>Walk round</b> it, or <b>drag</b> to turn it any way';
 
 // ------------------------------------------------------------ 0 · camera permission
 async function cameraGranted(){
@@ -55,12 +54,13 @@ async function cameraGranted(){
 }
 async function openPerm(){
   S.phase = 'perm';
-  if (await cameraGranted()) return afterPermission();
+  $('permStatus').textContent = '';
+  if (await cameraGranted()) return openScan();
   if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia){
     $('permStatus').textContent = 'This browser cannot use the camera here. Open the page over https in Safari or Chrome.';
-    $('permBtn').disabled = true;
     return;
   }
+  $('permBtn').disabled = false;
   show('perm');
 }
 async function askCamera(){
@@ -70,21 +70,13 @@ async function askCamera(){
     const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
     stream.getTracks().forEach((t) => t.stop());
     $('permStatus').textContent = '';
-    afterPermission();
+    if (FROM_HUB) openFromHub(); else openScan();
   } catch (err) {
     console.error(err);
     $('permStatus').textContent = err?.name === 'NotAllowedError'
       ? 'The camera was blocked. Tap the “aA” or lock icon next to the address, allow the camera for this site, then tap Allow camera again.'
       : 'The camera did not start. Close other apps that use the camera and try again.';
   } finally { $('permBtn').disabled = false; }
-}
-// the hub has already found the picture: go straight to the instructions over the camera
-async function afterPermission(){
-  if (!q.has('demo')) return openScan();
-  show(null);
-  try { await Stage.startFloat(); }
-  catch (e){ console.error(e); }
-  openIntro();
 }
 
 // ------------------------------------------------------------ 1 · scan the picture (once)
@@ -106,14 +98,21 @@ async function openScan(){
 // found: the sushi is already floating over the camera; the instructions come up over it
 function onFound(){
   if (S.phase !== 'scan') return;
-  S.phase = 'found';
   overlay('guide', false);
   buzz(40);
-  overlay('found', true);
-  setTimeout(() => { overlay('found', false); openIntro(); }, 1300);
+  openIntro();
 }
 
 // ------------------------------------------------------------ 2 · instructions → Start
+// From the hub: no second scan. The camera comes on behind the instructions straight away
+// (same site as the hub, so its camera permission carries over); if it cannot, ask first.
+async function openFromHub(){
+  S.phase = 'intro';
+  openIntro(); // the instructions straight away; the camera comes on behind them
+  try { await Stage.startFloat(); }
+  catch (err){ console.error(err); S.phase = 'perm'; show('perm'); $('permBtn').disabled = false; }
+}
+
 function openIntro(){
   S.phase = 'intro';
   $('goBtn').disabled = false; $('camStatus').textContent = '';
@@ -128,7 +127,7 @@ function start(){
     Stage.startXR().then(() => enter('xr')).catch((err) => {
       console.error(err);
       S.xr = false;
-      $('stepMove').innerHTML = '<u>Turn:</u> drag one finger';
+      $('stepMove').innerHTML = '<b>Drag</b> to turn it any way';
       $('camStatus').textContent = 'Room tracking did not start here. The sushi will float over the camera instead.';
       Stage.startFloat().then(() => { $('goBtn').disabled = false; }).catch((e) => { $('goBtn').disabled = false; $('camStatus').textContent = 'The camera did not start. Close other apps that use the camera and try again.'; console.error(e); });
     });
@@ -145,6 +144,7 @@ function start(){
 
 function enter(mode){
   S.mode = mode; S.phase = 'view';
+  setInfo(true);
   $('goBtn').disabled = false;
   document.body.classList.toggle('preview', mode === 'preview');
   document.body.classList.toggle('mode-xr', mode === 'xr');
@@ -184,7 +184,7 @@ function buildTray(){
     b.setAttribute('role', 'option');
     b.dataset.id = p.id;
     b.innerHTML = `<img alt="" ${thumbs[p.id] ? `src="${thumbs[p.id]}"` : ''}><b>${p.name}</b>`;
-    b.addEventListener('click', () => pick(p.id));
+    b.addEventListener('click', () => { if (S.part === p.id) letGo(); else pick(p.id); });
     tray.appendChild(b);
   }
 }
@@ -192,7 +192,7 @@ function buildTray(){
 function setApart(on, quiet = false){
   Stage.setExploded(on);
   $('explodeBtn').classList.toggle('apart', on);
-  $('explodeBtn').textContent = on ? 'Put it back together' : 'Take it apart';
+  $('explodeLabel').textContent = on ? 'Put it back together' : 'Take it apart';
   if (!on){ S.part = null; setCard(null); markTray(null); }
   if (!quiet) buzz(on ? 35 : 20);
   setHint();
@@ -204,8 +204,12 @@ function onTap(id){
     if (id) setApart(true);
     return;
   }
-  if (id) pick(id);
-  else { S.part = null; Stage.select(null); setCard(null); markTray(null); setHint(); }
+  // as in the Pagoda repo: touch a part to pick it, touch it again or empty space to let go
+  if (id && id !== S.part) pick(id);
+  else letGo();
+}
+function letGo(){
+  S.part = null; Stage.select(null); setCard(null); markTray(null); setHint();
 }
 
 function pick(id, { quiet = false } = {}){
@@ -213,6 +217,7 @@ function pick(id, { quiet = false } = {}){
   S.part = id;
   Stage.select(id);
   setCard(BY_ID[id]);
+  if ($('namecard').hidden) setInfo(true);
   markTray(id, quiet);
   if (!quiet) buzz(12);
   setHint();
@@ -235,8 +240,8 @@ function setCard(p){
 function setHint(){
   let h;
   if (S.mode === 'xr' && S.placing) h = S.ringSeen ? 'Tap to <b>set the sushi down</b> on the ring' : 'Move your phone slowly over a <b>table</b> until a ring appears';
-  else if (!Stage.isExploded()) h = S.mode === 'xr' ? '<b>Tap the sushi</b> to take it apart. Walk round it to see every side' : '<b>Tap the sushi</b> to take it apart. <b>Drag</b> to turn it';
-  else if (S.part) h = 'Tap another piece, or <b>Put it back together</b>';
+  else if (!Stage.isExploded()) h = S.mode === 'xr' ? '<b>Tap the sushi</b> to take it apart. Walk round it to see every side' : '<b>Tap the sushi</b> to take it apart. <b>Drag</b> to turn it any way';
+  else if (S.part) h = 'Touch another piece · touch it again or empty space to let go';
   else h = 'Tap any <b>floating piece</b> to learn about it';
   $('hint').innerHTML = h;
 }
@@ -252,10 +257,10 @@ function hintLoop(){
   }, 7000);
 }
 
-// the free band between the top plates and the bottom buttons (framing of the floating sushi)
+// the free band between the top plates and the bottom buttons (preview framing only)
 let bandCache = null, bandKey = '';
 function band(){
-  const key = `${innerWidth}x${innerHeight}|${$('ncBlurb').textContent.length}|${$('hint').textContent.length}`;
+  const key = `${innerWidth}x${innerHeight}|${$('ncBlurb').textContent.length}|${$('hint').textContent.length}|${$('namecard').hidden}`;
   if (key !== bandKey){
     bandKey = key;
     const top = Math.max($('namecard').getBoundingClientRect().bottom, $('hint').getBoundingClientRect().bottom) + 8;
@@ -265,17 +270,30 @@ function band(){
   return bandCache;
 }
 
-// leaving the sushi view (the room-tracking session ended)
+// leaving the sushi view
 function leaveView(){
   clearInterval(S.hintTimer);
   setApart(false, true);
   overlay('hud', false);
   document.body.classList.remove('preview', 'mode-xr', 'mode-float', 'placing');
 }
-// ✕: back to the Scan to Explore scanning page
-function toHub(){
-  try { Stage.stop(); } catch { /* fine */ }
-  location.href = HUB;
+// The crosses (above the i button, and on the instructions) go back to scanning: to the
+// Scan to Explore hub's scanner when this was opened from there, otherwise to this app's own.
+function backToScan(){
+  if (S.phase === 'view') leaveView();
+  S.mode = null; S.part = null;
+  Stage.stop();
+  if (FROM_HUB){ location.href = HUB; return; }
+  show(null);
+  openScan();
+}
+
+// ------------------------------------------------------------ the information panel
+// its small cross hides it; the i button shows it again (and hides it)
+function setInfo(on){
+  $('namecard').hidden = !on;
+  $('infoBtn').setAttribute('aria-expanded', String(on));
+  if (on){ $('namecard').classList.remove('pop'); void $('namecard').offsetWidth; $('namecard').classList.add('pop'); }
 }
 
 // ------------------------------------------------------------ wiring
@@ -283,8 +301,10 @@ $('permBtn').addEventListener('click', askCamera);
 $('scanRetry').addEventListener('click', openScan);
 $('goBtn').addEventListener('click', start);
 $('explodeBtn').addEventListener('click', () => setApart(!Stage.isExploded()));
-$('closeBtn').addEventListener('click', toHub);
-$('hubBack').addEventListener('click', toHub);
+$('exitBtn').addEventListener('click', backToScan);
+$('introClose').addEventListener('click', backToScan);
+$('infoBtn').addEventListener('click', () => setInfo($('namecard').hidden));
+$('notesClose').addEventListener('click', () => setInfo(false));
 $('errBtn').addEventListener('click', () => location.reload());
 addEventListener('keydown', (e) => {
   if (S.phase !== 'view') return;
@@ -299,4 +319,5 @@ addEventListener('keydown', (e) => {
 addEventListener('error', (e) => fail(e.error || e.message));
 addEventListener('unhandledrejection', (e) => fail(e.reason));
 if (q.get('preview') === '1'){ Stage.startPreview(); enter('preview'); }
+else if (FROM_HUB) openFromHub();
 else openPerm();

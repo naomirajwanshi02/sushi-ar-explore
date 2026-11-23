@@ -7,23 +7,25 @@ outside, rice, then salmon, cucumber and avocado in the middle), a tuna nigiri, 
 nigiri topped with salmon roe. **Tap the sushi** and every piece comes apart, layer by layer, the way it was
 made. **Tap any floating piece** (or its picture in the tray) for its name and a line about it.
 
-It follows the same flow and look as the other NomAR explorers (Kumamoto Castle, Shinto Shrine,
-Ramen Anatomy): the Anatomy kit in its sepia theme, Zen Maru Gothic at the same sizes (nothing under
-14px), plates, red pill buttons, a "Found it!" badge, a glass name card and a tray of parts. There is
-no backdrop (the live camera is the only background) and no Japanese text anywhere.
+It has the same screens, flow and look as **Ramen Anatomy**: the Anatomy kit in its sepia theme, Zen Maru Gothic, plates,
+red pill buttons, a name card with its own ✕ and an **i** button, and a tray of parts. Touch a part and it keeps its colour
+and glows while the rest fade toward paper (touch it again, or empty space, to let go). There is no backdrop (the live
+camera is the only background), no text under 14px and no Japanese text anywhere.
 
 ## The flow
 
 1. **Allow camera access.** One tap, the browser asks for the camera.
 2. **Viewfinder.** Point the camera at the sushi picture ([`sushi_main.jpeg`](sushi_main.jpeg), printed or on
    another screen). This happens **once**: the picture is not needed again after that.
-3. **Found it!**, then the **instructions** appear over the live camera, with the sushi already floating behind them. Tap **Start**.
+3. **Instructions** appear over the live camera, with the sushi already floating behind them. Tap **Start**.
 4. **The sushi.**
    - **iPhone:** the sushi floats steady over the camera. Drag to turn it any way, pinch to zoom.
    - **Android** (Chrome with ARCore): Start opens room tracking (WebXR). Move over a table until a ring appears
      and tap to set the board down at real size (21 cm), then walk round it. If room tracking can't start, the
      sushi floats over the camera instead.
-   - Every ✕ goes back to the [Scan to Explore](https://naomirajwanshi02.github.io/Scan_To_Explore/) scanning page, the hub this experience is linked under.
+   - The ✕ (on the instructions, and above the **i** button) goes back to scanning: to the
+     [Scan to Explore](https://naomirajwanshi02.github.io/Scan_To_Explore/) hub's scanner when opened from it, otherwise to this app's own.
+   - The name card's small ✕ hides it; the **i** button brings it back.
 
 ## The 9 parts
 
@@ -53,8 +55,9 @@ camera). Don't crop it. A tablet or second screen showing it also works.
 
 ## URL options
 
-- `?demo=1`: added by the [Scan to Explore](https://github.com/naomirajwanshi02/Scan_To_Explore) hub, which has already
-  recognised the picture, so the scan is skipped. There is no button for this on screen.
+- `?from=hub` (and `?demo=1`): added by the [Scan to Explore](https://github.com/naomirajwanshi02/Scan_To_Explore) hub, which has
+  already recognised the picture. The instructions open straight away with the camera starting behind them, and the crosses
+  go back to the hub's scanner. There is no button for this on screen.
 - `?card=1`: float the sushi over the camera even where room tracking works
 - `?apart=1`: open already apart; `?part=<id>`: open with that part picked (`board rice nori wasabi cucumber avocado tuna salmon roe`)
 - `?preview=1`: development only, no camera
