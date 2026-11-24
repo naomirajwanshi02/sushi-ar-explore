@@ -559,10 +559,11 @@ function thumbnails(){
     return tr.domElement.toDataURL('image/png');
   };
   R.sushi.setExplode(0);
-  // the picture on the instructions is drawn twice as big, so it stays sharp at 200 px
-  tr.setSize(S * 2, S * 2);
-  out.whole = shoot(0.62, 0, 0.62);
-  tr.setSize(S, S);
+  // the picture on the instructions: wide like the board, sharp at twice its size, and framed
+  // round the whole model's bounding sphere (pad 1) so nothing is cropped
+  tr.setSize(520, 320); cam.aspect = 520 / 320; cam.updateProjectionMatrix();
+  out.whole = shoot(0.62, 0, 0.64);
+  tr.setSize(S, S); cam.aspect = 1; cam.updateProjectionMatrix();
   R.sushi.setExplode(1);
   for (const id in parts){
     for (const k in parts) parts[k].root.visible = k === id;
